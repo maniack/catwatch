@@ -10,4 +10,6 @@ type Config struct {
 	OIDCClientID     string
 	OIDCClientSecret string
 	OIDCRedirectURL  string
+
+	AuthSuccessRedirect string
 }

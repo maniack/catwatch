@@ -20,12 +20,17 @@ type Handler struct {
 	sessions    sessions.SessionStore
 	issueTokens IssueTokenFunc
 	tokenTTL    time.Duration
+	appRedirect string
 }
 
 // NewHandler constructs Handler.
 func NewHandler(store *storage.Store, logger *logrus.Logger, cfg Config, sessStore sessions.SessionStore, issue IssueTokenFunc) *Handler {
 	if sessStore == nil {
 		sessStore = sessions.NewMemorySessionStore()
+	}
+	appRedirect := cfg.AuthSuccessRedirect
+	if appRedirect == "" {
+		appRedirect = "/"
 	}
 	return &Handler{
 		store:       store,
@@ -34,6 +39,7 @@ func NewHandler(store *storage.Store, logger *logrus.Logger, cfg Config, sessSto
 		sessions:    sessStore,
 		issueTokens: issue,
 		tokenTTL:    24 * time.Hour,
+		appRedirect: appRedirect,
 	}
 }
 

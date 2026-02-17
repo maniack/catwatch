@@ -107,6 +107,32 @@ func RequestLogger(l *logrus.Logger, debugPaths ...string) func(http.Handler) ht
 	}
 }
 
+// SecurityHeaders adds common security-related headers to all responses.
+func SecurityHeaders() func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			csp := strings.Join([]string{
+				"default-src 'self'",
+				"base-uri 'self'",
+				"form-action 'self'",
+				"script-src 'self' 'unsafe-inline'",
+				"style-src 'self' 'unsafe-inline'",
+				"img-src 'self' data: https:",
+				"font-src 'self' data:",
+				"connect-src 'self' ws: wss: https:",
+				"frame-ancestors 'none'",
+			}, "; ")
+			w.Header().Set("Content-Security-Policy", csp)
+			w.Header().Set("X-Content-Type-Options", "nosniff")
+			w.Header().Set("X-Frame-Options", "DENY")
+			w.Header().Set("Referrer-Policy", "no-referrer")
+			w.Header().Set("Permissions-Policy", "geolocation=(), microphone=(), camera=()")
+
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
 // AuditMiddleware logs mutations to the AuditLog table.
 func (s *Server) AuditMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

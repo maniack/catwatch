@@ -3,6 +3,7 @@ package backend
 import (
 	"encoding/json"
 	"net/http"
+	"net/url"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -73,19 +74,37 @@ func NewServer(cfg Config) (*Server, error) {
 	r.Use(chmw.Recoverer)
 	r.Use(chmw.Logger)
 	r.Use(RequestLogger(cfg.Logger, cfg.Monitoring.HealthzEndpoint+"/alive", cfg.Monitoring.HealthzEndpoint+"/ready"))
+	r.Use(SecurityHeaders())
 	r.Use(s.JWTAuth)
 	r.Use(s.AuditMiddleware)
-	if len(cfg.CORSAllowOrigin) == 0 {
-		cfg.CORSAllowOrigin = []string{"*"}
-	}
-	r.Use(cors.Handler(cors.Options{
-		AllowedOrigins:   cfg.CORSAllowOrigin,
+
+	co := cors.Options{
 		AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
 		AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type", "X-CSRF-Token"},
 		ExposedHeaders:   []string{"Link"},
 		AllowCredentials: true,
 		MaxAge:           300,
-	}))
+	}
+	if len(cfg.CORSAllowOrigin) == 0 {
+		co.AllowOriginFunc = func(r *http.Request, origin string) bool {
+			if origin == "" {
+				return false
+			}
+			u, err := url.Parse(origin)
+			if err != nil {
+				return false
+			}
+			return u.Host == r.Host
+		}
+	} else {
+		for _, o := range cfg.CORSAllowOrigin {
+			if o == "*" {
+				co.AllowCredentials = false
+			}
+		}
+		co.AllowedOrigins = cfg.CORSAllowOrigin
+	}
+	r.Use(cors.Handler(co))
 
 	// OAuth Handlers
 	oa := oauth.NewHandler(s.store, s.log, cfg.OAuth, s.sessions, s.issueTokens)

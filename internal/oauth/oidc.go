@@ -206,6 +206,6 @@ func (h *Handler) doOIDCCallback(w http.ResponseWriter, r *http.Request, p provi
 		fmt.Fprintf(w, "<h2>Authorization successful!</h2><p>You can now return to the Telegram bot.</p>")
 	} else {
 		// For SPA, redirect to home
-		http.Redirect(w, r, "/", http.StatusFound)
+		http.Redirect(w, r, h.appRedirect, http.StatusFound)
 	}
 }

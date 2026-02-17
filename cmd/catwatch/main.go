@@ -66,6 +66,7 @@ func main() {
 			&cli.StringFlag{Category: "authentication", Name: "bot-api-key", Usage: "Static key for bot authentication", Sources: cli.EnvVars("BOT_API_KEY")},
 			&cli.DurationFlag{Category: "authentication", Name: "auth-access-ttl", Usage: "Access token TTL", Value: 15 * time.Minute, Sources: cli.EnvVars("AUTH_ACCESS_TTL")},
 			&cli.DurationFlag{Category: "authentication", Name: "auth-refresh-ttl", Usage: "Refresh token TTL", Value: 720 * time.Hour, Sources: cli.EnvVars("AUTH_REFRESH_TTL")},
+			&cli.StringFlag{Category: "authentication", Name: "auth-success-redirect", Usage: "Redirect URL after successful OAuth", Value: "/", Sources: cli.EnvVars("AUTH_SUCCESS_REDIRECT")},
 		},
 		Commands: []*cli.Command{
 			{
@@ -156,13 +157,14 @@ func main() {
 				BotAPIKey:       c.String("bot-api-key"),
 				SessionStore:    sessStore,
 				OAuth: oauth.Config{
-					GoogleClientID:     c.String("google-client-id"),
-					GoogleClientSecret: c.String("google-client-secret"),
-					GoogleRedirectURL:  c.String("google-redirect-url"),
-					OIDCIssuer:         c.String("oidc-issuer"),
-					OIDCClientID:       c.String("oidc-client-id"),
-					OIDCClientSecret:   c.String("oidc-client-secret"),
-					OIDCRedirectURL:    c.String("oidc-redirect-url"),
+					GoogleClientID:      c.String("google-client-id"),
+					GoogleClientSecret:  c.String("google-client-secret"),
+					GoogleRedirectURL:   c.String("google-redirect-url"),
+					OIDCIssuer:          c.String("oidc-issuer"),
+					OIDCClientID:        c.String("oidc-client-id"),
+					OIDCClientSecret:    c.String("oidc-client-secret"),
+					OIDCRedirectURL:     c.String("oidc-redirect-url"),
+					AuthSuccessRedirect: c.String("auth-success-redirect"),
 				},
 			}
 
