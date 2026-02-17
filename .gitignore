@@ -1,0 +1,13 @@
+.vscode/
+.idea/
+.DS_Store
+.env
+*.iml
+bin/
+data/
+internal/frontend/node_modules/
+node_modules/
+vendor/
+*.db
+*.log
+*.out

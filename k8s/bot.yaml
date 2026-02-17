@@ -1,0 +1,45 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: bot
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: bot
+  template:
+    metadata:
+      labels:
+        app: bot
+    spec:
+      containers:
+        - name: bot
+          image: maniack/catwatch:latest
+          args: ["bot"]
+          env:
+            - name: API_URL
+              value: "http://backend"
+            - name: PUBLIC_API_URL
+              value: "https://catwatch.example.com" # Replace with real public URL
+            - name: TG_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: catwatch-secrets
+                  key: tg-token
+            - name: BOT_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: catwatch-secrets
+                  key: bot-api-key
+          livenessProbe:
+            httpGet:
+              path: /healthz/alive
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 20
+          readinessProbe:
+            httpGet:
+              path: /healthz/ready
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 10

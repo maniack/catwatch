@@ -1,0 +1,16 @@
+# Build artifacts
+bin/
+*.out
+*.log
+
+# Local data
+/data
+*.db
+
+# IDE/editor
+.idea/
+.vscode/
+*.iml
+
+# Node/npm (just in case)
+node_modules/

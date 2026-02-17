@@ -1,0 +1,37 @@
+services:
+  redis:
+    image: redis:7-alpine
+    restart: always
+
+  backend:
+    build: .
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./data:/data
+    environment:
+      - DB_PATH=/data/catwatch.db
+      - LISTEN=:8080
+      - DEBUG=true
+      - DEV_LOGIN=1
+      - BOT_API_KEY=${BOT_API_KEY:-test-bot-key}
+      - SESSION_REDIS=redis:6379
+      - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}
+      - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET}
+      - GOOGLE_REDIRECT_URL=${GOOGLE_REDIRECT_URL:-http://localhost:8080/auth/google/callback}
+    depends_on:
+      - redis
+    restart: unless-stopped
+
+  bot:
+    build: .
+    command: bot
+    environment:
+      - TG_TOKEN=${TG_TOKEN}
+      - API_URL=http://backend:8080
+      - PUBLIC_API_URL=${PUBLIC_API_URL:-http://localhost:8080}
+      - BOT_API_KEY=${BOT_API_KEY:-test-bot-key}
+      - DEBUG=true
+    depends_on:
+      - backend
+    restart: unless-stopped
