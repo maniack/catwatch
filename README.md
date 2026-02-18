@@ -164,6 +164,7 @@ The application can be configured via command-line flags or environment variable
 
 #### Session Storage (Redis)
 If not specified, an in-memory storage is used (suitable for development only).
+
 | Parameter | ENV | Default | Description |
 |-----------|-----|---------|-------------|
 | `--session-redis` | `SESSION_REDIS` | | Redis address (`host:port`). |
