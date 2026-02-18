@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1.6
 FROM golang:1.24-alpine AS builder
-RUN apk add --no-cache build-base esbuild bash git
+RUN apk add --no-cache build-base pkgconfig libwebp-dev esbuild bash git
 WORKDIR /src
 COPY . .
 ENV CGO_ENABLED=1 GOOS=linux
@@ -9,7 +9,7 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
     make build BIN_DIR=/out
 
 FROM alpine:3.20
-RUN apk add --no-cache ca-certificates tzdata
+RUN apk add --no-cache ca-certificates tzdata libwebp
 RUN addgroup -S app && adduser -S app -G app
 RUN mkdir -p /data /app && chown -R app:app /data /app
 COPY --from=builder /out/catwatch /app/catwatch

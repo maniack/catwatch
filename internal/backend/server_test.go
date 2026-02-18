@@ -876,3 +876,58 @@ func TestUpdateCatWithUnknownFields(t *testing.T) {
 		t.Errorf("Expected name 'Updated Cat Name', got '%s'", out.Name)
 	}
 }
+
+func TestPublicCatIncludesAttributes(t *testing.T) {
+	s := newTestServer(t)
+	r := s.Router
+	token := issueTestToken(t, s, "test-user")
+
+	// Create cat with attributes
+	birth := time.Date(2018, 1, 2, 0, 0, 0, 0, time.UTC)
+	in := map[string]any{
+		"name":          "Murka",
+		"color":         "black",
+		"gender":        "female",
+		"is_sterilized": true,
+		"birth_date":    birth,
+	}
+	body, _ := json.Marshal(in)
+	req := httptest.NewRequest(http.MethodPost, "/api/cats/", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+token)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("create cat failed: %d, %s", w.Code, w.Body.String())
+	}
+	var created map[string]any
+	_ = json.Unmarshal(w.Body.Bytes(), &created)
+	id := created["id"].(string)
+
+	// GET cat and verify attributes present
+	req2 := httptest.NewRequest(http.MethodGet, "/api/cats/"+id+"/", nil)
+	w2 := httptest.NewRecorder()
+	r.ServeHTTP(w2, req2)
+	if w2.Code != http.StatusOK {
+		t.Fatalf("get cat failed: %d, %s", w2.Code, w2.Body.String())
+	}
+	var got map[string]any
+	_ = json.Unmarshal(w2.Body.Bytes(), &got)
+
+	if got["gender"] != "female" {
+		t.Fatalf("expected gender 'female', got %v", got["gender"])
+	}
+	if got["color"] != "black" {
+		t.Fatalf("expected color 'black', got %v", got["color"])
+	}
+	if _, ok := got["is_sterilized"]; !ok {
+		t.Fatalf("expected is_sterilized field to be present in response")
+	}
+	if got["is_sterilized"] != true {
+		t.Fatalf("expected is_sterilized true, got %v", got["is_sterilized"])
+	}
+
+	if bd, ok := got["birth_date"].(string); !ok || !strings.HasPrefix(bd, "2018-01-02") {
+		t.Fatalf("expected birth_date starting with 2018-01-02, got %v", got["birth_date"])
+	}
+}

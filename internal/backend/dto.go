@@ -10,6 +10,10 @@ type PublicCat struct {
 	ID            string                `json:"id"`
 	Name          string                `json:"name"`
 	Description   string                `json:"description,omitempty"`
+	Color         string                `json:"color,omitempty"`
+	BirthDate     *time.Time            `json:"birth_date,omitempty"`
+	Gender        string                `json:"gender"`
+	IsSterilized  bool                  `json:"is_sterilized"`
 	Condition     int                   `json:"condition"`
 	NeedAttention bool                  `json:"need_attention"`
 	Tags          []storage.Tag         `json:"tags,omitempty"`
@@ -34,6 +38,10 @@ func ToPublicCat(c storage.Cat) PublicCat {
 		ID:            c.ID,
 		Name:          c.Name,
 		Description:   c.Description,
+		Color:         c.Color,
+		BirthDate:     c.BirthDate,
+		Gender:        c.Gender,
+		IsSterilized:  c.IsSterilized,
 		Condition:     c.Condition,
 		NeedAttention: c.NeedAttention,
 		Tags:          c.Tags,

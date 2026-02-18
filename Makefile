@@ -10,7 +10,7 @@ BOT_CMD = ./cmd/catwatch_bot
 BIN_DIR = bin
 VERSION ?= $(shell git describe --tags --long --always 2>/dev/null || echo "v0.0.0-dev")
 BUILDTIME ?= $(shell date -u +%Y-%m-%dT%H:%M:%SZ || echo "1970-01-01T00:00:00Z")
-LDFLAGS ?= "-s -w -X main.Version=$(VERSION) -X main.BuildTime=$(BUILDTIME)"
+LDFLAGS ?= -s -w -X main.Version=$(VERSION) -X main.BuildTime=$(BUILDTIME)
 
 .DEFAULT_GOAL := help
 
@@ -24,12 +24,12 @@ build: $(BIN_DIR)/$(BINARY) $(BIN_DIR)/$(BOT_BINARY) ## Build binaries in ./bin/
 
 $(BIN_DIR)/$(BINARY): tidy vendor fmt vet test generate ## Build main application
 	@mkdir -p $(BIN_DIR)
-	$(GO) build -trimpath -ldflags $(LDFLAGS) -o $(BIN_DIR)/$(BINARY) $(CMD)
+	CGO_ENABLED=1 $(GO) build -trimpath -ldflags "$(LDFLAGS)" -o $(BIN_DIR)/$(BINARY) $(CMD)
 	@echo "Built $(BIN_DIR)/$(BINARY) $(VERSION) $(BUILDTIME)"
 
 $(BIN_DIR)/$(BOT_BINARY): tidy vendor fmt vet test generate ## Build Telegram bot
 	@mkdir -p $(BIN_DIR)
-	$(GO) build -trimpath -ldflags $(LDFLAGS) -o $(BIN_DIR)/$(BOT_BINARY) $(BOT_CMD)
+	CGO_ENABLED=1 $(GO) build -trimpath -ldflags "$(LDFLAGS)" -o $(BIN_DIR)/$(BOT_BINARY) $(BOT_CMD)
 	@echo "Built $(BIN_DIR)/$(BOT_BINARY) $(VERSION) $(BUILDTIME)"
 
 .PHONY: run
