@@ -106,22 +106,23 @@ CatWatch supports [Model Context Protocol](https://modelcontextprotocol.io/) to 
 - `get_cat_records`: Get feeding and medical history for a cat.
 
 ### MCP over HTTP (SSE)
-MCP теперь интегрирован в основной HTTP‑сервер и доступен по endpoint’у:
+MCP is now integrated into the main HTTP server and is available at the endpoint:
 ```
 GET/POST /api/mcp
 ```
-Доступ защищён: требуется JWT в заголовке `Authorization: Bearer <JWT>` (или cookie `access_token`).
-Транспорт — HTTP с Server‑Sent Events (SSE), реализованный в SDK. Клиент открывает SSE‑подключение GET‑запросом к `/api/mcp`, сервер в первом событии вернёт session endpoint (с query `sessionid=...`), после чего клиент отправляет JSON‑RPC сообщения методом POST на тот же URL с параметром `sessionid`.
+Access is protected: JWT is required in the `Authorization: Bearer <JWT>` header (or `access_token` cookie).
 
-Пример базовой проверки SSE (в браузере/через curl):
-- Откройте поток событий: `curl -N -H "Authorization: Bearer <JWT>" http://localhost:8080/api/mcp`
-- В ответ придёт событие `endpoint:` со значением URL, на который нужно POST’ить JSON‑RPC сообщения для данной сессии.
+The transport uses HTTP with Server-Sent Events (SSE). The client opens an SSE connection with a GET request to `/api/mcp`. The server returns a session endpoint (with `sessionid=...` query) in the first event, after which the client sends JSON-RPC messages via POST to that same URL with the `sessionid` parameter.
 
-Подсказки:
-- Получить JWT можно через стандартный OAuth‑логин (Google/OIDC), после чего взять `access_token` из cookie или использовать API‑клиент, который подставляет токен в заголовок.
-- В dev‑режиме (`--devel`) можно получить тестовый токен через `POST /api/auth/dev-login` или нажать кнопку "Dev Login" на странице входа.
+Basic SSE check example (in browser/via curl):
+- Open the event stream: `curl -N -H "Authorization: Bearer <JWT>" http://localhost:8080/api/mcp`
+- In response, you will receive an `endpoint:` event with the URL to which you should POST JSON-RPC messages for this session.
 
-Примечание: некоторые внешние клиенты (например, текущие версии десктопных приложений) могут поддерживать только stdio‑транспорт. В таком случае используйте MCP‑клиента/интеграцию с поддержкой HTTP(SSE).
+Tips:
+- You can get a JWT through standard OAuth login (Google/OIDC), then extract the `access_token` from the cookie or use an API client that includes the token in the header.
+- In dev mode (`--devel`), you can get a test token via `POST /api/auth/dev-login` or click the "Dev Login" button on the sign-in page.
+
+Note: Some external clients (e.g., current versions of desktop apps) may only support stdio transport. In such cases, use an MCP client or integration with HTTP(SSE) support.
 
 The bot interface automatically adapts to your Telegram language (supports English and Russian).
 
