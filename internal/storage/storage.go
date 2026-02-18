@@ -49,6 +49,10 @@ type Cat struct {
 	Images  []Image  `gorm:"constraint:OnDelete:CASCADE;" json:"images"`
 	Records []Record `gorm:"constraint:OnDelete:CASCADE;" json:"records"`
 	Tags    []Tag    `gorm:"many2many:cat_tags;" json:"tags"`
+
+	// Virtual fields for API (populated in handlers)
+	Likes int64 `gorm:"-" json:"likes"`
+	Liked bool  `gorm:"-" json:"liked"`
 }
 
 type Tag struct {
@@ -144,6 +148,15 @@ type Setting struct {
 	Value string `json:"value"`
 }
 
+// Like represents a like from a user to a cat.
+type Like struct {
+	ID        string    `gorm:"type:char(36);primaryKey" json:"id"`
+	CreatedAt time.Time `json:"created_at"`
+
+	CatID  string `gorm:"type:char(36);index:idx_cat_user,unique" json:"cat_id"`
+	UserID string `gorm:"type:char(36);index:idx_cat_user,unique" json:"user_id"`
+}
+
 type Store struct {
 	DB *gorm.DB
 }
@@ -190,6 +203,7 @@ func Open(dsn string) (*Store, error) {
 		&AuditLog{},
 		&BotLink{},
 		&Setting{},
+		&Like{},
 	); err != nil {
 		return nil, fmt.Errorf("auto-migrate: %w", err)
 	}
@@ -331,4 +345,44 @@ func (s *Store) PruneAllCatsImages(keepN int) (int64, error) {
 		total += n
 	}
 	return total, nil
+}
+
+// Like helpers
+
+func (s *Store) IsLikedByUser(catID, userID string) (bool, error) {
+	var n int64
+	err := s.DB.Model(&Like{}).Where("cat_id = ? AND user_id = ?", catID, userID).Count(&n).Error
+	return n > 0, err
+}
+
+func (s *Store) SetLike(catID, userID string, like bool) error {
+	if like {
+		l := &Like{ID: NewUUID(), CatID: catID, UserID: userID}
+		return s.DB.Create(l).Error
+	}
+	return s.DB.Where("cat_id = ? AND user_id = ?", catID, userID).Delete(&Like{}).Error
+}
+
+func (s *Store) LikesCount(catID string) (int64, error) {
+	var n int64
+	err := s.DB.Model(&Like{}).Where("cat_id = ?", catID).Count(&n).Error
+	return n, err
+}
+
+func (s *Store) GetUserLikedCats(userID string) ([]Cat, error) {
+	var cats []Cat
+	err := s.DB.Joins("JOIN likes ON likes.cat_id = cats.id").
+		Where("likes.user_id = ?", userID).
+		Preload("Images").Preload("Tags").
+		Find(&cats).Error
+	return cats, err
+}
+
+func (s *Store) GetUserAuditLogs(userID string, limit int) ([]AuditLog, error) {
+	var logs []AuditLog
+	err := s.DB.Where("user_id = ?", userID).
+		Order("timestamp DESC").
+		Limit(limit).
+		Find(&logs).Error
+	return logs, err
 }

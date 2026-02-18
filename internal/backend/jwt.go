@@ -205,6 +205,42 @@ func (s *Server) handleGetUser(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, u)
 }
 
+func (s *Server) handleGetUserLikes(w http.ResponseWriter, r *http.Request) {
+	uid, ok := UserIDFromCtx(r.Context())
+	if !ok {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
+		return
+	}
+	cats, err := s.store.GetUserLikedCats(uid)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+
+	out := make([]PublicCat, len(cats))
+	for i, c := range cats {
+		pc := ToPublicCat(c)
+		pc.Liked = true
+		pc.Likes, _ = s.store.LikesCount(c.ID)
+		out[i] = pc
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
+func (s *Server) handleGetUserAudit(w http.ResponseWriter, r *http.Request) {
+	uid, ok := UserIDFromCtx(r.Context())
+	if !ok {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
+		return
+	}
+	logs, err := s.store.GetUserAuditLogs(uid, 50)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, logs)
+}
+
 func (s *Server) handleBotToken(w http.ResponseWriter, r *http.Request) {
 	if s.cfg.BotAPIKey != "" && r.Header.Get("X-Bot-Key") != s.cfg.BotAPIKey {
 		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "invalid bot key"})

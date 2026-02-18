@@ -77,7 +77,23 @@ var (
 		Subsystem: "cats",
 		Name:      "condition",
 		Help:      "Cat condition (1..5)",
-	}, []string{"cat_id", "name"})
+	}, []string{"cat_id"})
+
+	// Cat likes gauge: count per cat
+	CatLikes = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+		Namespace: "catwatch",
+		Subsystem: "cats",
+		Name:      "likes",
+		Help:      "Number of likes for a cat",
+	}, []string{"cat_id"})
+
+	// Records counter
+	RecordsTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Namespace: "catwatch",
+		Subsystem: "records",
+		Name:      "total",
+		Help:      "Total number of cat records by type and cat_id",
+	}, []string{"cat_id", "type"})
 )
 
 // Init initializes metrics and registers collectors (idempotent).
@@ -97,6 +113,8 @@ func Init() {
 	prometheus.MustRegister(ImageOptDBErrors)
 	prometheus.MustRegister(ImagesPrunedTotal)
 	prometheus.MustRegister(CatCondition)
+	prometheus.MustRegister(CatLikes)
+	prometheus.MustRegister(RecordsTotal)
 	initOnce.done = true
 }
 
@@ -109,9 +127,22 @@ func IncHTTP(method, path, code string) {
 }
 
 // SetCatCondition sets/promotes the condition gauge for a cat
-func SetCatCondition(catID, name string, cond int) {
+func SetCatCondition(catID string, cond int) {
 	if cond < 0 {
 		cond = 0
 	}
-	CatCondition.WithLabelValues(catID, name).Set(float64(cond))
+	CatCondition.WithLabelValues(catID).Set(float64(cond))
+}
+
+// SetCatLikes sets the likes gauge for a cat
+func SetCatLikes(catID string, likes int) {
+	if likes < 0 {
+		likes = 0
+	}
+	CatLikes.WithLabelValues(catID).Set(float64(likes))
+}
+
+// IncRecord increments cat records counter
+func IncRecord(recordType, catID string) {
+	RecordsTotal.WithLabelValues(catID, recordType).Inc()
 }

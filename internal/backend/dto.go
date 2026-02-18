@@ -15,6 +15,11 @@ type PublicCat struct {
 	Tags          []storage.Tag         `json:"tags,omitempty"`
 	LastSeen      *time.Time            `json:"last_seen,omitempty"`
 	Locations     []storage.CatLocation `json:"locations,omitempty"`
+	Images        []storage.Image       `json:"images,omitempty"`
+	Likes         int64                 `json:"likes"`
+	Liked         bool                  `json:"liked"`
+	CreatedAt     time.Time             `json:"created_at"`
+	Records       any                   `json:"records,omitempty"`
 }
 
 type PublicRecord struct {
@@ -34,6 +39,10 @@ func ToPublicCat(c storage.Cat) PublicCat {
 		Tags:          c.Tags,
 		LastSeen:      c.LastSeen,
 		Locations:     c.Locations,
+		Images:        c.Images,
+		Likes:         c.Likes,
+		Liked:         c.Liked,
+		CreatedAt:     c.CreatedAt,
 	}
 }
 

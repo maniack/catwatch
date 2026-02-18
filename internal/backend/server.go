@@ -11,6 +11,7 @@ import (
 	"github.com/go-chi/cors"
 	"github.com/sirupsen/logrus"
 
+	"github.com/maniack/catwatch/internal/frontend"
 	"github.com/maniack/catwatch/internal/logging"
 	"github.com/maniack/catwatch/internal/monitoring"
 	"github.com/maniack/catwatch/internal/oauth"
@@ -48,6 +49,7 @@ type Server struct {
 	log      *logrus.Logger
 	cfg      Config
 	sessions sessions.SessionStore
+	assets   http.FileSystem
 }
 
 func NewServer(cfg Config) (*Server, error) {
@@ -65,6 +67,12 @@ func NewServer(cfg Config) (*Server, error) {
 	monitoring.Init()
 
 	s := &Server{store: cfg.Store, log: cfg.Logger, cfg: cfg, sessions: cfg.SessionStore}
+	assets, err := frontend.FS(cfg.DevLoginEnabled)
+	if err != nil {
+		return nil, err
+	}
+	s.assets = assets
+
 	r := chi.NewRouter()
 	s.Router = r
 
@@ -133,10 +141,13 @@ func NewServer(cfg Config) (*Server, error) {
 			r.Post("/dev-login", s.handleDevLogin)
 			r.Post("/refresh", s.handleRefresh)
 			r.Post("/logout", s.handleLogout)
-			r.Group(func(r chi.Router) {
-				r.Use(s.RequireAuth)
-				r.Get("/user", s.handleGetUser)
-			})
+		})
+
+		r.Group(func(r chi.Router) {
+			r.Use(s.RequireAuth)
+			r.Get("/user", s.handleGetUser)
+			r.Get("/user/likes", s.handleGetUserLikes)
+			r.Get("/user/audit", s.handleGetUserAudit)
 		})
 
 		r.Route("/cats", func(r chi.Router) {
@@ -164,6 +175,8 @@ func NewServer(cfg Config) (*Server, error) {
 					})
 					// Locations
 					r.Post("/locations", s.addCatLocation)
+					// Likes
+					r.Post("/like", s.handleToggleLike)
 				})
 			})
 			// Global cat creation (needs to be outside /{id} but inside /cats)
@@ -192,11 +205,22 @@ func NewServer(cfg Config) (*Server, error) {
 		})
 	})
 
+	// Static
+	fileServer := http.FileServer(s.assets)
+	r.Handle("/css/*", fileServer)
+	r.Handle("/js/*", fileServer)
+	r.Handle("/fonts/*", fileServer)
+	r.Handle("/images/*", fileServer)
+	r.Handle("/favicon.ico", fileServer)
+	r.Handle("/manifest.json", fileServer)
+
+	r.Get("/*", s.handleIndex)
+
 	// Start background workers
 	if !cfg.SkipWorkers {
 		s.startImageOptimizer()
 		s.startImageCleanup(5, 10*time.Minute)
-		s.startCatConditionCollector(30 * time.Second)
+		s.startCatMetricsCollector(30 * time.Second)
 	}
 
 	return s, nil

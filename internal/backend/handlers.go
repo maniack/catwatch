@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	htmltemplate "html/template"
+	"io"
 	"net/http"
 	"strconv"
 	"strings"
@@ -14,6 +16,7 @@ import (
 
 	"github.com/maniack/catwatch/internal/l10n"
 	"github.com/maniack/catwatch/internal/logging"
+	"github.com/maniack/catwatch/internal/monitoring"
 	"github.com/maniack/catwatch/internal/storage"
 )
 
@@ -110,16 +113,16 @@ func (s *Server) listCats(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if uid == "" {
-		publicCats := make([]PublicCat, len(cats))
-		for i, c := range cats {
-			publicCats[i] = ToPublicCat(c)
+	out := make([]PublicCat, len(cats))
+	for i, c := range cats {
+		pc := ToPublicCat(c)
+		pc.Likes, _ = s.store.LikesCount(c.ID)
+		if uid != "" {
+			pc.Liked, _ = s.store.IsLikedByUser(c.ID, uid)
 		}
-		writeJSON(w, http.StatusOK, publicCats)
-		return
+		out[i] = pc
 	}
-
-	writeJSON(w, http.StatusOK, cats)
+	writeJSON(w, http.StatusOK, out)
 }
 
 func (s *Server) createCat(w http.ResponseWriter, r *http.Request) {
@@ -159,7 +162,7 @@ func (s *Server) createCat(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.LogAudit(r, "cat", in.ID, "success", "create")
-	writeJSON(w, http.StatusCreated, in)
+	writeJSON(w, http.StatusCreated, ToPublicCat(in))
 }
 
 func (s *Server) updateCatLastSeenFromRecord(rec storage.Record) {
@@ -190,12 +193,23 @@ func (s *Server) getCat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if uid == "" {
-		writeJSON(w, http.StatusOK, ToPublicCat(cat))
-		return
+	pc := ToPublicCat(cat)
+	pc.Likes, _ = s.store.LikesCount(cat.ID)
+	if uid != "" {
+		pc.Liked, _ = s.store.IsLikedByUser(cat.ID, uid)
+		pc.Records = cat.Records
+	} else {
+		// Anonymous users can only see done records
+		var publicRecs []PublicRecord
+		for _, rec := range cat.Records {
+			if rec.DoneAt != nil {
+				publicRecs = append(publicRecs, ToPublicRecord(rec))
+			}
+		}
+		pc.Records = publicRecs
 	}
 
-	writeJSON(w, http.StatusOK, cat)
+	writeJSON(w, http.StatusOK, pc)
 }
 
 func (s *Server) updateCat(w http.ResponseWriter, r *http.Request) {
@@ -236,7 +250,14 @@ func (s *Server) updateCat(w http.ResponseWriter, r *http.Request) {
 	s.LogAudit(r, "cat", id, "success", "update")
 	var out storage.Cat
 	_ = s.store.DB.Preload("Locations").Preload("Images").Preload("Tags").First(&out, "id = ?", id).Error
-	writeJSON(w, http.StatusOK, out)
+
+	uid, _ := UserIDFromCtx(r.Context())
+	pc := ToPublicCat(out)
+	pc.Likes, _ = s.store.LikesCount(out.ID)
+	if uid != "" {
+		pc.Liked, _ = s.store.IsLikedByUser(out.ID, uid)
+	}
+	writeJSON(w, http.StatusOK, pc)
 }
 
 func (s *Server) deleteCat(w http.ResponseWriter, r *http.Request) {
@@ -372,7 +393,7 @@ func (s *Server) addCatLocation(w http.ResponseWriter, r *http.Request) {
 		CatID:     catID,
 		UserID:    uid,
 		Type:      "observation",
-		Note:      "Location updated via bot",
+		Note:      fmt.Sprintf("Location updated: %.6f, %.6f", loc.Latitude, loc.Longitude),
 		Timestamp: loc.CreatedAt,
 		DoneAt:    &loc.CreatedAt,
 	}
@@ -380,6 +401,7 @@ func (s *Server) addCatLocation(w http.ResponseWriter, r *http.Request) {
 		s.log.WithError(err).Warn("failed to create automatic observation record for location")
 	} else {
 		s.LogAudit(r, "record", obsRec.ID, "success", "create-auto-loc")
+		monitoring.IncRecord(obsRec.Type, catID)
 	}
 
 	// Also update Cat.LastSeen if this location is fresh
@@ -451,6 +473,7 @@ func (s *Server) markRecordDone(w http.ResponseWriter, r *http.Request) {
 					return
 				}
 				s.LogAudit(r, "record", newRec.ID, "success", "done-virtual")
+				monitoring.IncRecord(newRec.Type, newRec.CatID)
 				s.updateCatLastSeenFromRecord(newRec)
 				writeJSON(w, http.StatusOK, newRec)
 				return
@@ -636,6 +659,7 @@ func (s *Server) createRecord(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.LogAudit(r, "record", in.ID, "success", "create")
+	monitoring.IncRecord(in.Type, catID)
 	// Update LastSeen if record is done or has timestamp
 	s.updateCatLastSeenFromRecord(in)
 
@@ -776,6 +800,68 @@ func (s *Server) getCatImageBinary(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", img.MIME)
 	w.Header().Set("Cache-Control", "public, max-age=31536000")
 	_, _ = w.Write(img.Data)
+}
+
+func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
+	f, err := s.assets.Open("index.html")
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	defer f.Close()
+
+	data, err := io.ReadAll(f)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	tmpl, err := htmltemplate.New("index").Parse(string(data))
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	scheme := "http"
+	if r.TLS != nil || strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https") {
+		scheme = "https"
+	}
+	baseURL := scheme + "://" + r.Host
+
+	copyright := fmt.Sprintf("CatWatch © %d", time.Now().Year())
+
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	err = tmpl.Execute(w, map[string]any{
+		"Version":   s.cfg.Version,
+		"Copyright": copyright,
+		"Dev":       s.cfg.DevLoginEnabled,
+		"Canonical": baseURL + r.URL.Path,
+		"OGURL":     baseURL + r.URL.Path,
+		"OGImage":   baseURL + "/images/cat_watch_icon.png", // We should have one
+	})
+	if err != nil {
+		s.log.WithError(err).Error("failed to execute index template")
+	}
+}
+
+func (s *Server) handleToggleLike(w http.ResponseWriter, r *http.Request) {
+	uid, ok := UserIDFromCtx(r.Context())
+	if !ok {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
+		return
+	}
+	id := chi.URLParam(r, "id")
+	cur, err := s.store.IsLikedByUser(id, uid)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "db error"})
+		return
+	}
+	if err := s.store.SetLike(id, uid, !cur); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "db error"})
+		return
+	}
+	n, _ := s.store.LikesCount(id)
+	writeJSON(w, http.StatusOK, map[string]any{"likes": n, "liked": !cur})
 }
 
 // minimal local json decoder helper with sane defaults

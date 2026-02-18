@@ -7,8 +7,12 @@ An application for volunteers and organizations dedicated to helping homeless ca
 - Cat registry with photos, descriptions, tags, and service history.
 - Cat location tracking (locations).
 - Procedure calendar: planning one-time and recurring events.
-- Notifications about upcoming procedures in the Telegram bot.
-- Automatic tracking of the last discovery date (`LastSeen`).
+- **Web UI**: Modern React-based single-page application for managing the registry from a browser.
+- **Likes and Favorites**: Users can "like" cats, mark favorites, and see a popularity counter.
+- **Personal Account**: View your profile and activity log (audit trail).
+- **Notifications about upcoming procedures** in the Telegram bot.
+- **Multi-domain support**: Flexible CORS and security headers for serving the application on multiple domains.
+- **Success Redirect**: Configurable redirect URL after successful OAuth authentication.
 - Localization support: English (EN) and Russian (RU) based on user's language.
 - Image management: automatic optimization (WebP, resizing), multi-upload support (up to 5 photos).
 - Sighting history: track multiple locations per cat with automatic observation logging.
@@ -26,6 +30,7 @@ An application for volunteers and organizations dedicated to helping homeless ca
 - `internal/logging` — Logging (logrus).
 - `internal/monitoring` — Metrics (Prometheus).
 - `internal/bot` — Telegram bot logic (tgbotapi), HTTP client for API.
+- `internal/frontend` — React-based Web UI (embedded).
 - `cmd/catwatch` — Main application entry point.
 - `cmd/catwatch_bot` — Telegram bot entry point.
 
@@ -75,6 +80,20 @@ Starting the bot:
 ./bin/catwatch_bot --tg-token <YOUR_TOKEN> --api-url http://localhost:8080 --bot-api-key <SECRET_KEY>
 ```
 
+## Web UI
+The application includes a Web UI accessible at the same address as the API (default `http://localhost:8080`). 
+Features:
+- View cat list and details.
+- Add and edit cats (requires authorization).
+- Manage photos and journal events (requires authorization).
+- View sightings history and log new locations.
+- Responsive design for mobile and desktop.
+
+Build and run with Web UI:
+1. Ensure `esbuild` is installed (`brew install esbuild` or `npm i -g esbuild`).
+2. Run `make generate` to build the frontend bundle.
+3. Run `make build` to compile the application with embedded frontend.
+
 The bot interface automatically adapts to your Telegram language (supports English and Russian).
 
 Bot configuration:
@@ -96,6 +115,7 @@ Parameters are set via flags or environment variables:
 
 ### Authentication (OAuth2 / OIDC)
 - `--devel` (ENV: `DEV_LOGIN=1`) — enables dev login for testing (`POST /api/auth/dev-login`).
+- `--auth-success-redirect` (ENV: `AUTH_SUCCESS_REDIRECT`) — custom URL to redirect to after successful login (default `/`).
 - `--google-client-id`, `--google-client-secret`, `--google-redirect-url` — Settings for Google OAuth2.
 - `--oidc-issuer`, `--oidc-client-id`, `--oidc-client-secret`, `--oidc-redirect-url` — Settings for a custom OIDC provider.
 - `--session-redis`, `--session-redis-pass`, `--session-redis-prefix` — Redis settings for session storage. If not specified, in-memory storage is used (development only).
@@ -111,11 +131,14 @@ Parameters are set via flags or environment variables:
 - `POST /api/auth/refresh` — Token refresh.
 - `POST /api/auth/logout` — Logout.
 - `GET /api/user` — Information about the current user (requires JWT).
+- `GET /api/user/likes` — List of cats liked by the current user.
+- `GET /api/user/audit` — Activity log for the current user.
 
 ### Cats
 - `GET /api/cats/` — List of all cats (public, limited data).
 - `POST /api/cats/` — Add a new cat (requires JWT).
 - `GET /api/cats/{id}/` — Cat details (public, limited data).
+- `POST /api/cats/{id}/like` — Toggle like for a cat (requires JWT).
 - `PUT /api/cats/{id}/` — Update cat data (requires JWT).
 - `DELETE /api/cats/{id}/` — Delete cat (requires JWT).
 

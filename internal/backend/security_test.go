@@ -179,6 +179,23 @@ func TestAuditLogs(t *testing.T) {
 	if entry.Status != "success" {
 		t.Errorf("expected status success, got %s", entry.Status)
 	}
+
+	// 5. Verify API endpoint GET /api/user/audit
+	reqAudit := httptest.NewRequest(http.MethodGet, "/api/user/audit", nil)
+	reqAudit.Header.Set("Authorization", "Bearer "+token)
+	wAudit := httptest.NewRecorder()
+	r.ServeHTTP(wAudit, reqAudit)
+	if wAudit.Code != http.StatusOK {
+		t.Fatalf("failed to get user audit: %s", wAudit.Body.String())
+	}
+	var auditList []storage.AuditLog
+	json.Unmarshal(wAudit.Body.Bytes(), &auditList)
+	if len(auditList) == 0 {
+		t.Errorf("expected audit logs in list, got empty")
+	}
+	if auditList[0].ID != entry.ID {
+		t.Errorf("expected first log ID %s, got %s", entry.ID, auditList[0].ID)
+	}
 }
 
 func TestBotTokenAndUnlink(t *testing.T) {

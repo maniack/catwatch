@@ -36,11 +36,12 @@ type Bot struct {
 }
 
 type ConversationState struct {
-	Step       string
-	Cat        storage.Cat
-	Record     storage.Record
-	CatID      string // for editing
-	PhotoCount int    // added to track media group/multiple photos
+	Step                 string
+	Cat                  storage.Cat
+	Record               storage.Record
+	CatID                string // for editing
+	PhotoCount           int    // added to track media group/multiple photos
+	ObservationCondition int    // added to store condition during observation flow
 }
 
 func NewBot(cfg Config) (*Bot, error) {
@@ -441,6 +442,8 @@ func (b *Bot) handleConversation(msg *tgbotapi.Message, state *ConversationState
 			cond = 5
 		}
 
+		state.ObservationCondition = cond
+
 		token, ok := b.ensureAuth(msg.Chat.ID, lang)
 		if ok {
 			cat, err := b.client.GetCat(state.CatID, token)
@@ -448,6 +451,13 @@ func (b *Bot) handleConversation(msg *tgbotapi.Message, state *ConversationState
 				cat.Condition = cond
 				_, _ = b.client.UpdateCat(state.CatID, *cat, token)
 			}
+		}
+		state.Step = "obs_note"
+		b.replyWithKeyboard(msg.Chat.ID, l10n.T(lang, "msg_obs_note_prompt"), b.skipCancelKeyboard(lang))
+
+	case "obs_note":
+		if strings.ToLower(msg.Text) != l10n.T(lang, "menu_skip") && strings.ToLower(msg.Text) != "skip" && strings.ToLower(msg.Text) != "пропустить" {
+			state.Record.Note = msg.Text
 		}
 		state.Step = "obs_photo"
 		b.replyWithKeyboard(msg.Chat.ID, l10n.T(lang, "msg_obs_photo_prompt"), b.skipCancelKeyboard(lang))
@@ -936,6 +946,9 @@ func (b *Bot) sendCatDetails(chatID int64, id string, lang string) {
 		text += "\n" + strings.Join(tagNames, " ") + "\n"
 	}
 
+	onlineURL := fmt.Sprintf("%s/#/cat/view/%s", b.client.PublicBaseURL, cat.ID)
+	text += "\n" + l10n.T(lang, "label_view_online", map[string]string{"URL": onlineURL}) + "\n"
+
 	btnSeen := tgbotapi.NewInlineKeyboardButtonData(l10n.T(lang, "btn_seen"), "lm:"+cat.ID)
 	btnFeed := tgbotapi.NewInlineKeyboardButtonData(l10n.T(lang, "btn_feed"), "f:"+cat.ID)
 	btnObserve := tgbotapi.NewInlineKeyboardButtonData(l10n.T(lang, "btn_observed"), "o:"+cat.ID)
@@ -1332,10 +1345,21 @@ func (b *Bot) observeCat(chatID int64, id string, lang string) {
 	if !ok {
 		return
 	}
+
+	note := l10n.T(lang, "rec_observation")
+	state, hasState := b.states[chatID]
+	if hasState && state.ObservationCondition > 0 {
+		condLabel := b.labelForCondition(state.ObservationCondition, lang)
+		note = fmt.Sprintf("%s: %s %s", l10n.T(lang, "btn_edit_cond"), emojiForCondition(state.ObservationCondition), condLabel)
+		if state.Record.Note != "" {
+			note += "\n" + l10n.T(lang, "label_note") + ": " + state.Record.Note
+		}
+	}
+
 	now := time.Now()
 	rec := storage.Record{
 		Type:      "observation",
-		Note:      "Observed via Telegram bot",
+		Note:      note,
 		Timestamp: now,
 		DoneAt:    &now,
 	}
@@ -1347,6 +1371,11 @@ func (b *Bot) observeCat(chatID int64, id string, lang string) {
 	}
 
 	b.reply(chatID, l10n.T(lang, "msg_rec_done"))
+}
+
+func (b *Bot) labelForCondition(cond int, lang string) string {
+	key := fmt.Sprintf("label_cond_%d", cond)
+	return l10n.T(lang, key)
 }
 
 func (b *Bot) sendEditMenu(chatID int64, id string, lang string) {
@@ -1582,7 +1611,92 @@ func (b *Bot) remindersLoop(ctx context.Context) {
 }
 
 func (b *Bot) checkReminders() {
-	// ... (существующий код)
+	// Check events for next 30 minutes
+	now := time.Now().UTC()
+	start := now
+	end := now.Add(30 * time.Minute)
+
+	recs, err := b.client.ListAllPlannedRecords(start, end)
+	if err != nil {
+		b.log.Errorf("failed to list planned records: %v", err)
+		return
+	}
+
+	if len(recs) > 0 {
+		b.log.WithField("count", len(recs)).Debug("found planned records for reminders")
+	} else {
+		return
+	}
+
+	users, err := b.client.ListBotUsers()
+	if err != nil {
+		b.log.Errorf("failed to list bot users: %v", err)
+		return
+	}
+	b.log.WithField("count", len(users)).Debug("found bot users for reminders")
+
+	for _, rec := range recs {
+		// Fetch cat details to get the name
+		cat, err := b.client.GetCat(rec.CatID, "")
+		catName := l10n.T("en", "label_cat") // Default to EN for background loop
+		if err == nil {
+			catName = cat.Name
+		}
+
+		for _, user := range users {
+			var chatID int64
+			fmt.Sscanf(user.ProviderID, "%d", &chatID)
+			if chatID == 0 {
+				continue
+			}
+
+			// Try to mark as sent first (atomic check-and-set in backend)
+			notif := storage.BotNotification{
+				RecordID: rec.ID,
+				ChatID:   chatID,
+				SentAt:   time.Now(),
+			}
+
+			if err := b.client.MarkNotificationSent(notif); err != nil {
+				if err == ErrAlreadyExists {
+					continue // Already sent to this user
+				}
+				b.log.Errorf("failed to mark notification as sent for user %d: %v", chatID, err)
+				continue
+			}
+
+			// Successfully marked as "sending now", send the message
+			lang := "en" // Default for background loop
+			timeStr := l10n.T(lang, "label_today")
+			if rec.PlannedAt != nil {
+				timeStr = rec.PlannedAt.Local().Format("15:04")
+			}
+			msgText := l10n.T(lang, "msg_reminder_title") + l10n.T(lang, "msg_reminder_body", map[string]string{
+				"Name": catName,
+				"Type": rec.Type,
+				"Time": timeStr,
+				"Note": rec.Note,
+			})
+
+			onlineURL := fmt.Sprintf("%s/#/cat/view/%s", b.client.PublicBaseURL, rec.CatID)
+			msgText += "\n\n" + l10n.T(lang, "label_view_online", map[string]string{"URL": onlineURL})
+
+			msg := tgbotapi.NewMessage(chatID, msgText)
+			msg.ParseMode = "Markdown"
+
+			// Add inline button to see cat details
+			keyboard := tgbotapi.NewInlineKeyboardMarkup(
+				tgbotapi.NewInlineKeyboardRow(
+					tgbotapi.NewInlineKeyboardButtonData(l10n.T(lang, "msg_view_cat"), "v:"+rec.CatID),
+				),
+			)
+			msg.ReplyMarkup = keyboard
+
+			if _, err := b.api.Send(msg); err != nil {
+				b.log.Errorf("failed to send reminder to chat %d: %v", chatID, err)
+			}
+		}
+	}
 }
 
 func (b *Bot) startHealthServer(ctx context.Context) {

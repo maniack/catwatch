@@ -22,23 +22,23 @@ help: ## Show this help message
 .PHONY: build
 build: $(BIN_DIR)/$(BINARY) $(BIN_DIR)/$(BOT_BINARY) ## Build binaries in ./bin/
 
-$(BIN_DIR)/$(BINARY): tidy vendor fmt vet test ## Build main application
+$(BIN_DIR)/$(BINARY): tidy vendor fmt vet test generate ## Build main application
 	@mkdir -p $(BIN_DIR)
 	$(GO) build -trimpath -ldflags $(LDFLAGS) -o $(BIN_DIR)/$(BINARY) $(CMD)
 	@echo "Built $(BIN_DIR)/$(BINARY) $(VERSION) $(BUILDTIME)"
 
-$(BIN_DIR)/$(BOT_BINARY): tidy vendor fmt vet test ## Build Telegram bot
+$(BIN_DIR)/$(BOT_BINARY): tidy vendor fmt vet test generate ## Build Telegram bot
 	@mkdir -p $(BIN_DIR)
 	$(GO) build -trimpath -ldflags $(LDFLAGS) -o $(BIN_DIR)/$(BOT_BINARY) $(BOT_CMD)
 	@echo "Built $(BIN_DIR)/$(BOT_BINARY) $(VERSION) $(BUILDTIME)"
 
 .PHONY: run
-run: tidy vendor fmt vet test ## Run application directly via go run (use env vars and ARGS="--flag=value")
+run: tidy vendor fmt vet test generate ## Run application directly via go run (use env vars and ARGS="--flag=value")
 	DB_PATH="./catwatch.db" $(GO) run $(CMD) $(ARGS)
 
 .PHONY: dev
-dev: tidy vendor fmt vet test ## Run in dev mode (DEBUG=1)
-	DEBUG=1 DB_PATH="./catwatch.db" $(GO) run $(CMD) $(ARGS)
+dev: tidy vendor fmt vet test generate ## Run in dev mode (DEBUG=1)
+	DEBUG=1 DEV_LOGIN=1 DB_PATH="./catwatch.db" $(GO) run $(CMD) $(ARGS)
 
 .PHONY: tidy
 tidy: ## Update dependencies (go mod tidy)
@@ -65,3 +65,12 @@ clean: ## Clean build artifacts
 	rm -f $(BIN_DIR)/$(BINARY)
 	rm -f $(BIN_DIR)/$(BOT_BINARY)
 	rm -f ./catwatch.db
+	rm -f internal/frontend/static/js/app.bundle.js
+	rm -f internal/frontend/static/js/app.bundle.js.map
+
+.PHONY: generate frontend
+generate: ## Generate frontend (go generate -> esbuild)
+	@command -v esbuild >/dev/null || (echo "esbuild not found. Install: 'brew install esbuild' or 'npm i -g esbuild'"; exit 1)
+	$(GO) generate ./...
+
+frontend: generate ## Alias for generate

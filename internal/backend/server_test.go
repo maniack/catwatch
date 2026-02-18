@@ -187,6 +187,48 @@ func TestPlanAndCompleteProcedure(t *testing.T) {
 	if len(doneList) == 0 {
 		t.Fatalf("expected done records, got 0: %s", w5.Body.String())
 	}
+
+	// test quick record creation (like Feed button in Web UI) - now with DoneAt
+	now := time.Now()
+	quickIn := map[string]any{
+		"type":    "feeding",
+		"note":    "Quick feed with done_at",
+		"done_at": now.UTC().Format(time.RFC3339),
+	}
+	quickBody, _ := json.Marshal(quickIn)
+	qReq := httptest.NewRequest(http.MethodPost, "/api/cats/"+catID+"/records", bytes.NewReader(quickBody))
+	qReq.Header.Set("Authorization", "Bearer "+token)
+	qW := httptest.NewRecorder()
+	r.ServeHTTP(qW, qReq)
+	if qW.Code != http.StatusCreated {
+		t.Fatalf("expected 201 for quick record, got %d", qW.Code)
+	}
+
+	// verify it appears in list even for anonymous (because it has done_at)
+	anonReq := httptest.NewRequest(http.MethodGet, "/api/cats/"+catID+"/", nil)
+	anonW := httptest.NewRecorder()
+	r.ServeHTTP(anonW, anonReq)
+	var anonCat PublicCat
+	json.Unmarshal(anonW.Body.Bytes(), &anonCat)
+
+	records, ok := anonCat.Records.([]any)
+	if !ok {
+		t.Fatalf("expected records to be slice in public cat, got %T", anonCat.Records)
+	}
+
+	found := false
+	for _, recAny := range records {
+		rec := recAny.(map[string]any)
+		if rec["type"] == "feeding" {
+			found = true
+			if rec["done_at"] == nil {
+				t.Error("expected done_at to be present in public record")
+			}
+		}
+	}
+	if !found {
+		t.Error("quick record not found in anonymous cat view")
+	}
 }
 
 func TestBotAPI(t *testing.T) {
@@ -291,7 +333,7 @@ func TestDevLogin(t *testing.T) {
 	}
 
 	// 2. Try to get user with token
-	req2 := httptest.NewRequest(http.MethodGet, "/api/auth/user", nil)
+	req2 := httptest.NewRequest(http.MethodGet, "/api/user", nil)
 	req2.Header.Set("Authorization", "Bearer "+accessToken)
 	w2 := httptest.NewRecorder()
 	r.ServeHTTP(w2, req2)
@@ -731,5 +773,47 @@ func TestLocationAutoRecord(t *testing.T) {
 
 	if !found {
 		t.Fatalf("automatic observation record for location not found")
+	}
+}
+
+func TestUpdateCatWithUnknownFields(t *testing.T) {
+	s := newTestServer(t)
+	r := s.Router
+
+	// 1. Create a cat
+	cat := storage.Cat{
+		ID:   storage.NewUUID(),
+		Name: "Test Cat",
+	}
+	s.store.DB.Create(&cat)
+
+	// 2. Try to update it with a JSON that includes "likes" and "liked"
+	// These fields are returned by GET /api/cats/{id} (as part of PublicCat)
+	// and frontend might send them back in PUT /api/cats/{id}
+	updateData := map[string]interface{}{
+		"name":  "Updated Cat Name",
+		"likes": 5,
+		"liked": true,
+	}
+	body, _ := json.Marshal(updateData)
+	req := httptest.NewRequest(http.MethodPut, "/api/cats/"+cat.ID, bytes.NewReader(body))
+	// We need to be authorized as mutations are protected
+	token := issueTestToken(t, s, "test-user")
+	req.Header.Set("Authorization", "Bearer "+token)
+
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("Expected status 200, got %d. Body: %s", w.Code, w.Body.String())
+	}
+
+	var out storage.Cat
+	if err := json.Unmarshal(w.Body.Bytes(), &out); err != nil {
+		t.Fatalf("Failed to unmarshal response: %v", err)
+	}
+
+	if out.Name != "Updated Cat Name" {
+		t.Errorf("Expected name 'Updated Cat Name', got '%s'", out.Name)
 	}
 }

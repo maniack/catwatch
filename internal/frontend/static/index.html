@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="en" data-bs-theme="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#000000">
+  <meta name="referrer" content="no-referrer">
+
+  <!-- PWA/Icons -->
+  <link rel="manifest" href="/manifest.json">
+  <link rel="apple-touch-icon" sizes="180x180" href="/images/icon-180x180.png">
+  <link rel="icon" type="image/x-icon" href="/images/favicon.ico">
+  <!-- Styles: preload to reduce render-blocking -->
+  <link rel="preload" href="/css/bootstrap.min.css" as="style" onload="this.onload=null;this.rel='stylesheet'">
+  <link rel="preload" href="/css/font-awesome.min.css" as="style" onload="this.onload=null;this.rel='stylesheet'">
+  <link rel="preload" href="/css/styles.css" as="style" onload="this.onload=null;this.rel='stylesheet'">
+  <noscript>
+    <link rel="stylesheet" href="/css/bootstrap.min.css">
+    <link rel="stylesheet" href="/css/font-awesome.min.css">
+    <link rel="stylesheet" href="/css/styles.css">
+  </noscript>
+  <!-- Preload critical font -->
+  <link rel="preload" href="/fonts/fa-solid-900.woff2" as="font" type="font/woff2" crossorigin>
+  <style>
+    /* Ensure icons don't block text rendering */
+    @font-face {
+      font-family: "Font Awesome 7 Free";
+      font-weight: 900;
+      font-style: normal;
+      font-display: swap;
+      src: url("/fonts/fa-solid-900.woff2") format("woff2");
+    }
+  </style>
+  <title>CatWatch — Monitoring and Care for Homeless Cats</title>
+  <!-- Basic SEO -->
+  <meta name="description" content="Maintain a cat registry, track locations, health status, and plan procedures for homeless cats.">
+  <meta name="robots" content="index,follow">
+  <link rel="canonical" href="{{ .Canonical }}">
+  <link rel="sitemap" type="application/xml" title="Sitemap" href="/sitemap.xml">
+  <!-- Open Graph -->
+  <meta property="og:title" content="CatWatch">
+  <meta property="og:description" content="Monitoring and Care for Homeless Cats. Maintain registry, track locations and health.">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="{{ .OGURL }}" id="og-url">
+  <meta property="og:image" content="{{ .OGImage }}">
+  <meta property="og:locale" content="en_US">
+  <!-- Twitter -->
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="CatWatch">
+  <meta name="twitter:description" content="Monitoring and Care for Homeless Cats. Maintain registry, track locations and health.">
+  <meta name="twitter:image" content="{{ .OGImage }}">
+  <!-- JSON-LD Structured Data -->
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "WebSite",
+    "name": "CatWatch",
+    "url": "/",
+    "potentialAction": {
+      "@type": "SearchAction",
+      "target": "/#/?q={search_term_string}",
+      "query-input": "required name=search_term_string"
+    }
+  }
+  </script>
+  <!-- Canonical/OG URL correction for SPA routes -->
+  <script>
+    (function(){
+      try {
+        var href = window.location.href;
+        var c = document.querySelector('link[rel=\'canonical\']');
+        if (c) c.setAttribute('href', href);
+        var og = document.getElementById('og-url');
+        if (og) og.setAttribute('content', href);
+      } catch(e) {}
+    })();
+  </script>
+</head>
+<body>
+  <div id="app"></div>
+  <footer class="footer row mb-5 border-top">
+    <div class="col col-12 px-5 py-2 d-flex justify-content-between align-items-center small">
+      <span class="text-start text-body-tertiary">{{ .Copyright }}</span>
+      <span class="text-end text-body-tertiary">{{ .Version }}</span>
+    </div>
+  </footer>
+</body>
+<script src="/js/react.production.min.js" defer></script>
+<script src="/js/react-dom.production.min.js" defer></script>
+<script src="/js/bootstrap.bundle.min.js" defer></script>
+<script src="/js/app.bundle.js" defer></script>
+{{ if .Dev }}
+<script>
+(function(){
+  try {
+    var proto = (location.protocol === 'https:') ? 'wss://' : 'ws://';
+    var ws = new WebSocket(proto + location.host + '/livereload');
+    ws.onmessage = function(){
+      try { ws.close(); } catch(e) {}
+      window.location.reload();
+    };
+    ws.onerror = function(){ try { ws.close(); } catch(e) {} };
+  } catch(e) {}
+})();
+</script>
+{{ end }}
+</html>

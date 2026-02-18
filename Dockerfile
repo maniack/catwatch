@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1.6
 FROM golang:1.24-alpine AS builder
-RUN apk add --no-cache build-base bash git
+RUN apk add --no-cache build-base esbuild bash git
 WORKDIR /src
 COPY . .
 ENV CGO_ENABLED=1 GOOS=linux
