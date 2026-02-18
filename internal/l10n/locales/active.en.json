@@ -73,6 +73,7 @@
   "msg_rec_done": "✅ Record marked as done!",
   "msg_cond_updated": "✅ Condition updated!",
   "msg_cat_deleted": "✅ Cat deleted.",
+  "msg_user_deleted": "✅ Your account and all associated data have been deleted.",
   "msg_no_cats": "🐈 There are no cats in the registry yet. You can add one using the '✍️ Add cat' button.",
   "msg_cats_list_title": "📋 *Cat Registry*\n\nChoose a cat from the list to see more details:",
   "msg_cat_not_found": "Cat not found or API error.",
@@ -161,8 +162,10 @@
   "label_past_events": "📜 Past events (last 2):",
   "label_upcoming_events": "📅 Upcoming events (next 3):",
   "label_view_online": "🔗 View online: {{.URL}}",
+  "label_auth_generic": "🔐 Sign in",
   "label_auth_google": "🔐 Sign in with Google",
   "label_auth_dev": "🛠 Sign in with Dev Login",
+  "label_export_data": "📥 Export Data",
   "auth_success_title": "Dev Authorization successful!",
   "auth_success_msg": "Linked to chat {{.ChatID}}. You can now return to the Telegram bot."
 }

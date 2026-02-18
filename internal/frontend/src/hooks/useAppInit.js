@@ -15,7 +15,18 @@ export default function useAppInit() {
 
   // Load config and user
   useEffect(() => {
-    fetch('/api/config').then(r => r.json()).then(setConfig).catch(() => {});
+    fetch('/.well-known/oauth-authorization-server')
+      .then(r => r.json())
+      .then(meta => {
+        const c = meta.x_catwatch_config || {};
+        setConfig({
+          googleEnabled: !!c.google_enabled,
+          oidcEnabled: !!c.oidc_enabled,
+          devLogin: !!c.dev_login,
+          authorizationEndpoint: meta.authorization_endpoint
+        });
+      })
+      .catch(() => {});
   }, []);
 
   useEffect(() => {

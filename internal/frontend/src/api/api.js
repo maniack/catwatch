@@ -3,6 +3,11 @@
 const api = {
   async request(path, opts = {}) {
     const headers = opts.headers || {};
+    // CSRF protection: include X-CSRF-Token header for mutation requests
+    const method = opts.method || 'GET';
+    if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(method.toUpperCase())) {
+      headers['X-CSRF-Token'] = '1'; // Simple presence is enough for our middleware
+    }
     // Do not attach Authorization header; rely on HttpOnly cookies
     const isForm = (typeof FormData !== 'undefined') && (opts.body instanceof FormData);
     if (!isForm && !headers['Content-Type']) headers['Content-Type'] = 'application/json';

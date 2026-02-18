@@ -112,6 +112,7 @@ type Record struct {
 }
 
 // AuditLog tracks all mutating actions.
+// GDPR: Minimizing data. We keep only what's necessary for operation.
 type AuditLog struct {
 	ID         string    `gorm:"type:char(36);primaryKey" json:"id"`
 	Timestamp  time.Time `gorm:"index" json:"ts"`
@@ -121,8 +122,6 @@ type AuditLog struct {
 	TargetType string    `gorm:"index" json:"target_type"`
 	TargetID   string    `gorm:"index" json:"target_id"`
 	Status     string    `json:"status"` // success, error
-	IP         string    `json:"ip"`
-	UserAgent  string    `json:"user_agent"`
 	RequestID  string    `json:"request_id"`
 	Delta      string    `json:"delta"`
 }
@@ -385,4 +384,57 @@ func (s *Store) GetUserAuditLogs(userID string, limit int) ([]AuditLog, error) {
 		Limit(limit).
 		Find(&logs).Error
 	return logs, err
+}
+
+func (s *Store) PruneAuditLogs(before time.Time) (int64, error) {
+	res := s.DB.Where("timestamp < ?", before).Delete(&AuditLog{})
+	return res.RowsAffected, res.Error
+}
+
+func (s *Store) DeleteUser(userID string) error {
+	return s.DB.Transaction(func(tx *gorm.DB) error {
+		// Delete related data first
+		if err := tx.Where("user_id = ?", userID).Delete(&Like{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("user_id = ?", userID).Delete(&BotLink{}).Error; err != nil {
+			return err
+		}
+		// Records and AuditLogs are kept but de-identified
+		if err := tx.Model(&Record{}).Where("user_id = ?", userID).Update("user_id", "").Error; err != nil {
+			return err
+		}
+		// Finally delete the user
+		if err := tx.Delete(&User{}, "id = ?", userID).Error; err != nil {
+			return err
+		}
+		return nil
+	})
+}
+
+func (s *Store) GetUserExport(userID string) (map[string]any, error) {
+	var user User
+	if err := s.DB.First(&user, "id = ?", userID).Error; err != nil {
+		return nil, err
+	}
+
+	var likes []Like
+	s.DB.Where("user_id = ?", userID).Find(&likes)
+
+	var botLinks []BotLink
+	s.DB.Where("user_id = ?", userID).Find(&botLinks)
+
+	var records []Record
+	s.DB.Where("user_id = ?", userID).Find(&records)
+
+	var auditLogs []AuditLog
+	s.DB.Where("user_id = ?", userID).Order("timestamp DESC").Find(&auditLogs)
+
+	return map[string]any{
+		"user":       user,
+		"likes":      likes,
+		"bot_links":  botLinks,
+		"records":    records,
+		"audit_logs": auditLogs,
+	}, nil
 }

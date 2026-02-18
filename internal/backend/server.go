@@ -13,6 +13,7 @@ import (
 
 	"github.com/maniack/catwatch/internal/frontend"
 	"github.com/maniack/catwatch/internal/logging"
+	"github.com/maniack/catwatch/internal/mcp"
 	"github.com/maniack/catwatch/internal/monitoring"
 	"github.com/maniack/catwatch/internal/oauth"
 	"github.com/maniack/catwatch/internal/sessions"
@@ -35,6 +36,8 @@ type Config struct {
 	AccessTTL  time.Duration
 	RefreshTTL time.Duration
 
+	AuditLogTTL time.Duration
+
 	OAuth        oauth.Config
 	BotAPIKey    string
 	SessionStore sessions.SessionStore
@@ -50,6 +53,7 @@ type Server struct {
 	cfg      Config
 	sessions sessions.SessionStore
 	assets   http.FileSystem
+	mcp      *mcp.Server
 }
 
 func NewServer(cfg Config) (*Server, error) {
@@ -66,7 +70,12 @@ func NewServer(cfg Config) (*Server, error) {
 
 	monitoring.Init()
 
-	s := &Server{store: cfg.Store, log: cfg.Logger, cfg: cfg, sessions: cfg.SessionStore}
+	mcpSrv, err := mcp.New(cfg.Store)
+	if err != nil {
+		return nil, err
+	}
+
+	s := &Server{store: cfg.Store, log: cfg.Logger, cfg: cfg, sessions: cfg.SessionStore, mcp: mcpSrv}
 	assets, err := frontend.FS(cfg.DevLoginEnabled)
 	if err != nil {
 		return nil, err
@@ -85,6 +94,7 @@ func NewServer(cfg Config) (*Server, error) {
 	r.Use(SecurityHeaders())
 	r.Use(s.JWTAuth)
 	r.Use(s.AuditMiddleware)
+	r.Use(s.CSRFProtection)
 
 	co := cors.Options{
 		AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
@@ -117,6 +127,7 @@ func NewServer(cfg Config) (*Server, error) {
 	// OAuth Handlers
 	oa := oauth.NewHandler(s.store, s.log, cfg.OAuth, s.sessions, s.issueTokens)
 	r.Route("/auth", func(r chi.Router) {
+		r.Get("/login", s.handleLoginPage)
 		r.Get("/google/login", oa.HandleGoogleLogin)
 		r.Get("/google/callback", oa.HandleGoogleCallback)
 		r.Get("/oidc/login", oa.HandleOIDCLogin)
@@ -132,9 +143,19 @@ func NewServer(cfg Config) (*Server, error) {
 	// Metrics
 	r.Handle(cfg.Monitoring.MetricsEndpoint, monitoring.Handler())
 
+	// RFC 9728 Discovery
+	r.Get("/.well-known/oauth-protected-resource", s.handleProtectedResourceMetadata)
+	r.Get("/.well-known/oauth-protected-resource/*", s.handleProtectedResourceMetadata)
+	// Backward-compatible alias
+	r.Get("/.well-known/protected-resource-metadata", s.handleProtectedResourceMetadata)
+
+	// RFC 8414 OAuth 2.0 Authorization Server Metadata
+	r.Get("/.well-known/oauth-authorization-server", s.handleAuthorizationServerMetadata)
+	// OpenID Connect Discovery
+	r.Get("/.well-known/openid-configuration", s.handleAuthorizationServerMetadata)
+
 	// API
 	r.Route("/api", func(r chi.Router) {
-		r.Get("/config", s.handleGetConfig)
 		r.Get("/records/planned", s.listAllPlannedRecords)
 
 		r.Route("/auth", func(r chi.Router) {
@@ -143,11 +164,14 @@ func NewServer(cfg Config) (*Server, error) {
 			r.Post("/logout", s.handleLogout)
 		})
 
-		r.Group(func(r chi.Router) {
+		r.Route("/user", func(r chi.Router) {
 			r.Use(s.RequireAuth)
-			r.Get("/user", s.handleGetUser)
-			r.Get("/user/likes", s.handleGetUserLikes)
-			r.Get("/user/audit", s.handleGetUserAudit)
+			r.Get("/", s.handleGetUser)
+			r.Patch("/", s.handleUpdateUser)
+			r.Delete("/", s.handleDeleteUser)
+			r.Get("/export", s.handleExportUser)
+			r.Get("/likes", s.handleGetUserLikes)
+			r.Get("/audit", s.handleGetUserAudit)
 		})
 
 		r.Route("/cats", func(r chi.Router) {
@@ -203,6 +227,11 @@ func NewServer(cfg Config) (*Server, error) {
 			r.Post("/token", s.handleBotToken)
 			r.Post("/unlink", s.handleBotUnlink)
 		})
+
+		r.Group(func(r chi.Router) {
+			r.Use(s.RequireAuth)
+			r.Handle("/mcp", s.mcp.HandleSSE())
+		})
 	})
 
 	// Static
@@ -221,6 +250,7 @@ func NewServer(cfg Config) (*Server, error) {
 		s.startImageOptimizer()
 		s.startImageCleanup(5, 10*time.Minute)
 		s.startCatMetricsCollector(30 * time.Second)
+		s.startAuditLogCleanup(1 * time.Hour)
 	}
 
 	return s, nil

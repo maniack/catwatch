@@ -94,6 +94,33 @@ Build and run with Web UI:
 2. Run `make generate` to build the frontend bundle.
 3. Run `make build` to compile the application with embedded frontend.
 
+## Model Context Protocol (MCP)
+CatWatch supports [Model Context Protocol](https://modelcontextprotocol.io/) to allow AI agents (like Claude Desktop) to interact with the cat registry.
+
+### Tools
+- `list_cats`: Get a list of all cats with basic info.
+- `get_cat`: Get detailed information about a specific cat by ID.
+- `search_cats`: Search for cats by name.
+- `get_cat_records`: Get feeding and medical history for a cat.
+
+### MCP over HTTP (SSE)
+MCP теперь интегрирован в основной HTTP‑сервер и доступен по endpoint’у:
+```
+GET/POST /api/mcp
+```
+Доступ защищён: требуется JWT в заголовке `Authorization: Bearer <JWT>` (или cookie `access_token`).
+Транспорт — HTTP с Server‑Sent Events (SSE), реализованный в SDK. Клиент открывает SSE‑подключение GET‑запросом к `/api/mcp`, сервер в первом событии вернёт session endpoint (с query `sessionid=...`), после чего клиент отправляет JSON‑RPC сообщения методом POST на тот же URL с параметром `sessionid`.
+
+Пример базовой проверки SSE (в браузере/через curl):
+- Откройте поток событий: `curl -N -H "Authorization: Bearer <JWT>" http://localhost:8080/api/mcp`
+- В ответ придёт событие `endpoint:` со значением URL, на который нужно POST’ить JSON‑RPC сообщения для данной сессии.
+
+Подсказки:
+- Получить JWT можно через стандартный OAuth‑логин (Google/OIDC), после чего взять `access_token` из cookie или использовать API‑клиент, который подставляет токен в заголовок.
+- В dev‑режиме (`--devel`) можно получить тестовый токен через `POST /api/auth/dev-login` или нажать кнопку "Dev Login" на странице входа.
+
+Примечание: некоторые внешние клиенты (например, текущие версии десктопных приложений) могут поддерживать только stdio‑транспорт. В таком случае используйте MCP‑клиента/интеграцию с поддержкой HTTP(SSE).
+
 The bot interface automatically adapts to your Telegram language (supports English and Russian).
 
 Bot configuration:
@@ -124,7 +151,9 @@ Parameters are set via flags or environment variables:
 
 ## API Endpoints
 ### Authentication
-- `GET /api/config` — Public configuration (available login methods).
+- `GET /.well-known/oauth-authorization-server` — OAuth 2.0 Authorization Server Metadata (RFC 8414).
+- `GET /.well-known/openid-configuration` — OpenID Connect Discovery.
+- `GET /auth/login` — Centralized login page (Login Picker).
 - `POST /api/auth/dev-login` — Dev login (only if `--devel` is enabled).
 - `GET /auth/google/login` — Login via Google.
 - `GET /auth/oidc/login` — Login via OIDC.

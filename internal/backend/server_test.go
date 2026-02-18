@@ -25,7 +25,9 @@ type catIn struct {
 func newTestServer(t *testing.T) *Server {
 	t.Helper()
 	logging.Init(false, false)
-	store, err := storage.Open("file::memory:?cache=shared")
+	// Use a unique name for each test in-memory database to avoid interference
+	dsn := fmt.Sprintf("file:%s?mode=memory&cache=shared", strings.ReplaceAll(t.Name(), "/", "_"))
+	store, err := storage.Open(dsn)
 	if err != nil {
 		t.Fatalf("open storage: %v", err)
 	}
@@ -98,6 +100,61 @@ func TestCreateAndGetCat(t *testing.T) {
 	r.ServeHTTP(w2, req2)
 	if w2.Code != http.StatusOK {
 		t.Fatalf("get code = %d, body=%s", w2.Code, w2.Body.String())
+	}
+}
+
+func TestUserExport(t *testing.T) {
+	s := newTestServer(t)
+	r := s.Router
+
+	// Pre-populate some data
+	user, err := s.store.FindOrCreateUser("test", "prov-id-123", "export@test.com", "Export User", "")
+	if err != nil {
+		t.Fatalf("failed to create user: %v", err)
+	}
+	uid := user.ID
+	token := issueTestToken(t, s, uid)
+
+	_ = s.store.SetLike("cat1", uid, true)
+	_ = s.store.LinkBotChat(12345, uid)
+
+	// Export
+	req := httptest.NewRequest(http.MethodGet, "/api/user/export", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("export code = %d, body=%s", w.Code, w.Body.String())
+	}
+
+	cd := w.Header().Get("Content-Disposition")
+	if !strings.Contains(cd, "attachment") || !strings.Contains(cd, uid) {
+		t.Fatalf("invalid Content-Disposition: %s", cd)
+	}
+
+	var data map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &data); err != nil {
+		t.Fatalf("failed to decode export JSON: %v", err)
+	}
+
+	// Check if data contains expected keys
+	keys := []string{"user", "likes", "bot_links", "records", "audit_logs"}
+	for _, k := range keys {
+		if _, ok := data[k]; !ok {
+			t.Errorf("missing key in export: %s", k)
+		}
+	}
+
+	// Verify specific data
+	userExport := data["user"].(map[string]any)
+	if userExport["email"] != "export@test.com" {
+		t.Errorf("expected email export@test.com, got %v", userExport["email"])
+	}
+
+	likes := data["likes"].([]any)
+	if len(likes) != 1 {
+		t.Errorf("expected 1 like, got %d", len(likes))
 	}
 }
 
@@ -293,7 +350,8 @@ func TestBotAPI(t *testing.T) {
 
 func TestDevLogin(t *testing.T) {
 	logging.Init(false, false)
-	store, _ := storage.Open("file::memory:?cache=shared")
+	dsn := fmt.Sprintf("file:%s?mode=memory&cache=shared", strings.ReplaceAll(t.Name(), "/", "_"))
+	store, _ := storage.Open(dsn)
 	s, _ := NewServer(Config{
 		Store:           store,
 		Logger:          logging.L(),
@@ -347,7 +405,7 @@ func TestDevLogin(t *testing.T) {
 		t.Fatalf("wrong user email: %s", user.Email)
 	}
 
-	// 3. Try protected route WITHOUT token (should auto-login in dev mode)
+	// 3. Try protected route WITHOUT token (should fail now as we require explicit auth)
 	in3 := catIn{Name: "AutoDevCat"}
 	body3, _ := json.Marshal(in3)
 	req3 := httptest.NewRequest(http.MethodPost, "/api/cats/", bytes.NewReader(body3))
@@ -355,8 +413,8 @@ func TestDevLogin(t *testing.T) {
 	w3 := httptest.NewRecorder()
 	r.ServeHTTP(w3, req3)
 
-	if w3.Code != http.StatusCreated {
-		t.Fatalf("auto dev login failed: expected 201, got %d, body=%s", w3.Code, w3.Body.String())
+	if w3.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401 for unauthorized access, got %d", w3.Code)
 	}
 }
 
@@ -413,7 +471,8 @@ func TestNeedAttentionAutoSet(t *testing.T) {
 
 func TestBotDevLogin(t *testing.T) {
 	logging.Init(false, false)
-	store, _ := storage.Open("file::memory:?cache=shared")
+	dsn := fmt.Sprintf("file:%s?mode=memory&cache=shared", strings.ReplaceAll(t.Name(), "/", "_"))
+	store, _ := storage.Open(dsn)
 	s, _ := NewServer(Config{
 		Store:           store,
 		Logger:          logging.L(),
@@ -462,7 +521,7 @@ func TestBotDevLogin(t *testing.T) {
 		t.Fatalf("empty access token")
 	}
 
-	// 4. Try unlinked chat (should work automatically in dev mode)
+	// 4. Try unlinked chat (should fail as we now require explicit linking even in dev mode)
 	unlinkedChatID := int64(112233)
 	in4 := map[string]int64{"chat_id": unlinkedChatID}
 	body4, _ := json.Marshal(in4)
@@ -471,8 +530,8 @@ func TestBotDevLogin(t *testing.T) {
 	w4 := httptest.NewRecorder()
 	r.ServeHTTP(w4, req4)
 
-	if w4.Code != http.StatusOK {
-		t.Fatalf("auto bot token failed: expected 200, got %d, body=%s", w4.Code, w4.Body.String())
+	if w4.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 for unlinked chat, got %d, body=%s", w4.Code, w4.Body.String())
 	}
 }
 

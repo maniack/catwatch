@@ -336,6 +336,20 @@ func (c *APIClient) UnlinkBot(chatID int64) error {
 	return nil
 }
 
+func (c *APIClient) DeleteUser(token string) error {
+	req, _ := http.NewRequest(http.MethodDelete, fmt.Sprintf("%s/api/user", c.BaseURL), nil)
+	req.Header.Set("X-CSRF-Token", "bot")
+	resp, err := c.do(req, token)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("delete user error: status %d", resp.StatusCode)
+	}
+	return nil
+}
+
 // UploadCatImage uploads image bytes via multipart/form-data to the backend.
 func (c *APIClient) UploadCatImage(catID string, filename string, mime string, data []byte, token string) (*storage.Image, error) {
 	var buf bytes.Buffer
@@ -477,8 +491,19 @@ func (c *APIClient) ListBotUsers() ([]storage.User, error) {
 	return users, nil
 }
 
-func (c *APIClient) GetConfig() (map[string]any, error) {
-	req, _ := http.NewRequest(http.MethodGet, fmt.Sprintf("%s/api/config", c.BaseURL), nil)
+type AuthMetadata struct {
+	Issuer                string `json:"issuer"`
+	AuthorizationEndpoint string `json:"authorization_endpoint"`
+	TokenEndpoint         string `json:"token_endpoint"`
+	Config                struct {
+		GoogleEnabled bool `json:"google_enabled"`
+		OIDCEnabled   bool `json:"oidc_enabled"`
+		DevLogin      bool `json:"dev_login"`
+	} `json:"x_catwatch_config"`
+}
+
+func (c *APIClient) GetAuthMetadata() (*AuthMetadata, error) {
+	req, _ := http.NewRequest(http.MethodGet, fmt.Sprintf("%s/.well-known/oauth-authorization-server", c.BaseURL), nil)
 	resp, err := c.do(req, "")
 	if err != nil {
 		return nil, err
@@ -486,12 +511,12 @@ func (c *APIClient) GetConfig() (map[string]any, error) {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("api config returned status: %d", resp.StatusCode)
+		return nil, fmt.Errorf("auth metadata returned status: %d", resp.StatusCode)
 	}
 
-	var cfg map[string]any
-	if err := json.NewDecoder(resp.Body).Decode(&cfg); err != nil {
+	var meta AuthMetadata
+	if err := json.NewDecoder(resp.Body).Decode(&meta); err != nil {
 		return nil, err
 	}
-	return cfg, nil
+	return &meta, nil
 }

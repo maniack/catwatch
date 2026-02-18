@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"path"
 	"sort"
 	"strconv"
@@ -143,6 +144,18 @@ func (b *Bot) handleMessage(msg *tgbotapi.Message, lang string) {
 			}
 			delete(b.tokens, msg.Chat.ID)
 			b.reply(msg.Chat.ID, l10n.T(lang, "msg_logged_out"))
+		case "delete_me":
+			token, ok := b.ensureAuth(msg.Chat.ID, lang)
+			if !ok {
+				return
+			}
+			if err := b.client.DeleteUser(token); err != nil {
+				b.log.Errorf("failed to delete user via bot: %v", err)
+				b.reply(msg.Chat.ID, l10n.T(lang, "err_api"))
+			} else {
+				delete(b.tokens, msg.Chat.ID)
+				b.reply(msg.Chat.ID, l10n.T(lang, "msg_user_deleted"))
+			}
 		case "cats":
 			b.sendCatsList(msg.Chat.ID, lang)
 		case "add_cat":
@@ -644,42 +657,37 @@ func (b *Bot) replyMarkdown(chatID int64, text string) {
 }
 
 func (b *Bot) getLoginMessage(chatID int64, lang string) (string, tgbotapi.InlineKeyboardMarkup) {
-	cfg, err := b.client.GetConfig()
-	googleEnabled := true // assume true if error
-	devEnabled := false
+	meta, err := b.client.GetAuthMetadata()
 	if err != nil {
-		b.log.WithError(err).Warn("failed to get config for login message, using defaults")
-	} else if cfg != nil {
-		googleEnabled, _ = cfg["googleEnabled"].(bool)
-		devEnabled, _ = cfg["devLogin"].(bool)
+		b.log.WithError(err).Warn("failed to get auth metadata for login message")
+		return l10n.T(lang, "msg_auth_needed"), tgbotapi.InlineKeyboardMarkup{}
 	}
 
 	b.log.WithFields(logrus.Fields{
-		"chat_id":        chatID,
-		"google_enabled": googleEnabled,
-		"dev_enabled":    devEnabled,
-	}).Debug("building login message")
+		"chat_id": chatID,
+		"issuer":  meta.Issuer,
+	}).Debug("building login message using auth metadata")
 
-	var rows [][]tgbotapi.InlineKeyboardButton
-	text := l10n.T(lang, "msg_auth_needed")
-
-	if googleEnabled {
-		loginURL := fmt.Sprintf("%s/auth/google/login?tg_chat_id=%d", b.client.PublicBaseURL, chatID)
-		rows = append(rows, tgbotapi.NewInlineKeyboardRow(tgbotapi.NewInlineKeyboardButtonURL(l10n.T(lang, "label_auth_google"), loginURL)))
+	loginURL := fmt.Sprintf("%s?tg_chat_id=%d", meta.AuthorizationEndpoint, chatID)
+	// If using PublicBaseURL for bot (if it differs from internal API URL), try to replace it.
+	// This is useful when backend is behind a reverse proxy or in Docker, but returns internal host in metadata.
+	if b.client.PublicBaseURL != "" && !strings.HasPrefix(meta.AuthorizationEndpoint, b.client.PublicBaseURL) {
+		u, err := url.Parse(meta.AuthorizationEndpoint)
+		if err == nil {
+			p, err := url.Parse(b.client.PublicBaseURL)
+			if err == nil {
+				u.Scheme = p.Scheme
+				u.Host = p.Host
+				loginURL = fmt.Sprintf("%s?tg_chat_id=%d", u.String(), chatID)
+			}
+		}
 	}
 
-	if devEnabled {
-		devURL := fmt.Sprintf("%s/auth/dev/login?tg_chat_id=%d", b.client.PublicBaseURL, chatID)
-		rows = append(rows, tgbotapi.NewInlineKeyboardRow(tgbotapi.NewInlineKeyboardButtonURL(l10n.T(lang, "label_auth_dev"), devURL)))
+	rows := [][]tgbotapi.InlineKeyboardButton{
+		tgbotapi.NewInlineKeyboardRow(tgbotapi.NewInlineKeyboardButtonURL(l10n.T(lang, "label_auth_generic"), loginURL)),
 	}
 
-	if len(rows) == 0 {
-		text = l10n.T(lang, "msg_auth_unavailable")
-	} else {
-		text += l10n.T(lang, "msg_auth_success")
-	}
-
-	return text, tgbotapi.NewInlineKeyboardMarkup(rows...)
+	return l10n.T(lang, "msg_auth_needed") + l10n.T(lang, "msg_auth_success"), tgbotapi.NewInlineKeyboardMarkup(rows...)
 }
 
 // mainMenuKeyboard forms a permanent keyboard like BotFather

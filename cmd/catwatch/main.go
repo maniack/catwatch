@@ -67,6 +67,8 @@ func main() {
 			&cli.DurationFlag{Category: "authentication", Name: "auth-access-ttl", Usage: "Access token TTL", Value: 15 * time.Minute, Sources: cli.EnvVars("AUTH_ACCESS_TTL")},
 			&cli.DurationFlag{Category: "authentication", Name: "auth-refresh-ttl", Usage: "Refresh token TTL", Value: 720 * time.Hour, Sources: cli.EnvVars("AUTH_REFRESH_TTL")},
 			&cli.StringFlag{Category: "authentication", Name: "auth-success-redirect", Usage: "Redirect URL after successful OAuth", Value: "/", Sources: cli.EnvVars("AUTH_SUCCESS_REDIRECT")},
+			&cli.StringFlag{Category: "authentication", Name: "jwt-secret", Usage: "JWT signing secret (required)", Sources: cli.EnvVars("JWT_SECRET")},
+			&cli.DurationFlag{Category: "audit", Name: "audit-log-ttl", Usage: "TTL for audit logs", Value: 720 * time.Hour, Sources: cli.EnvVars("AUDIT_LOG_TTL")},
 		},
 		Commands: []*cli.Command{
 			{
@@ -120,18 +122,23 @@ func main() {
 				log.Fatalf("open storage: %v", err)
 			}
 
-			jwtSecret, err := store.GetJWTSecret()
-			if err != nil {
-				// If secret not found, generate and persist
-				if errors.Is(err, gorm.ErrRecordNotFound) {
-					jwtSecret = randomSecret()
-					if err := store.SaveJWTSecret(jwtSecret); err != nil {
-						log.Fatalf("save jwt secret: %v", err)
+			jwtSecret := c.String("jwt-secret")
+			if jwtSecret == "" {
+				jwtSecret, err = store.GetJWTSecret()
+				if err != nil {
+					// If secret not found, generate and persist (backward compatibility)
+					if errors.Is(err, gorm.ErrRecordNotFound) {
+						jwtSecret = randomSecret()
+						if err := store.SaveJWTSecret(jwtSecret); err != nil {
+							log.Fatalf("save jwt secret: %v", err)
+						}
+						log.Infof("Generated new JWT secret and stored in DB (deprecated, use --jwt-secret)")
+					} else {
+						log.Fatalf("get jwt secret: %v", err)
 					}
-					log.Infof("Generated new JWT secret and stored in DB")
-				} else {
-					log.Fatalf("get jwt secret: %v", err)
 				}
+			} else {
+				log.Info("Using JWT secret from configuration")
 			}
 
 			var sessStore sessions.SessionStore
@@ -152,6 +159,7 @@ func main() {
 				},
 				DevLoginEnabled: c.Bool("devel"),
 				JWTSecret:       jwtSecret,
+				AuditLogTTL:     c.Duration("audit-log-ttl"),
 				AccessTTL:       c.Duration("auth-access-ttl"),
 				RefreshTTL:      c.Duration("auth-refresh-ttl"),
 				BotAPIKey:       c.String("bot-api-key"),

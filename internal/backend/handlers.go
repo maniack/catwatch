@@ -20,13 +20,67 @@ import (
 	"github.com/maniack/catwatch/internal/storage"
 )
 
-func (s *Server) handleGetConfig(w http.ResponseWriter, r *http.Request) {
-	cfg := map[string]any{
-		"googleEnabled": s.cfg.OAuth.GoogleClientID != "" && s.cfg.OAuth.GoogleClientSecret != "" && s.cfg.OAuth.GoogleRedirectURL != "",
-		"oidcEnabled":   s.cfg.OAuth.OIDCIssuer != "" && s.cfg.OAuth.OIDCClientID != "" && s.cfg.OAuth.OIDCRedirectURL != "",
-		"devLogin":      s.cfg.DevLoginEnabled,
+func (s *Server) handleLoginPage(w http.ResponseWriter, r *http.Request) {
+	lang := "en"
+	if l, ok := r.Context().Value(logging.ContextLang).(string); ok {
+		lang = l
 	}
-	writeJSON(w, http.StatusOK, cfg)
+
+	data := struct {
+		Lang          string
+		GoogleEnabled bool
+		OIDCEnabled   bool
+		DevEnabled    bool
+		Query         string
+	}{
+		Lang:          lang,
+		GoogleEnabled: s.cfg.OAuth.GoogleClientID != "" && s.cfg.OAuth.GoogleClientSecret != "" && s.cfg.OAuth.GoogleRedirectURL != "",
+		OIDCEnabled:   s.cfg.OAuth.OIDCIssuer != "" && s.cfg.OAuth.OIDCClientID != "" && s.cfg.OAuth.OIDCRedirectURL != "",
+		DevEnabled:    s.cfg.DevLoginEnabled,
+		Query:         r.URL.RawQuery,
+	}
+
+	tmpl := `<!DOCTYPE html>
+<html lang="{{.Lang}}">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Login - CatWatch</title>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; display: flex; align-items: center; justify-content: center; min-height: 100vh; background-color: #f9fafb; margin: 0; padding: 20px; }
+        .card { background: white; padding: 2.5rem; border-radius: 16px; box-shadow: 0 10px 25px rgba(0,0,0,0.05); width: 100%; max-width: 400px; text-align: center; }
+        .logo { font-size: 3rem; margin-bottom: 1rem; }
+        h2 { margin-bottom: 1.5rem; color: #111827; font-size: 1.5rem; }
+        .btn { display: flex; align-items: center; justify-content: center; width: 100%; padding: 14px; margin-bottom: 16px; border-radius: 10px; text-decoration: none; font-weight: 600; text-align: center; border: none; cursor: pointer; transition: transform 0.1s; }
+        .btn:active { transform: scale(0.98); }
+        .btn-google { background-color: #4285F4; color: white; }
+        .btn-oidc { background-color: #6366f1; color: white; }
+        .btn-dev { background-color: #ef4444; color: white; }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <div class="logo">🐈‍⬛</div>
+        <h2>CatWatch Login</h2>
+        {{if .GoogleEnabled}}
+        <a href="/auth/google/login?{{.Query}}" class="btn btn-google">Login with Google</a>
+        {{end}}
+        {{if .OIDCEnabled}}
+        <a href="/auth/oidc/login?{{.Query}}" class="btn btn-oidc">Login with OIDC</a>
+        {{end}}
+        {{if .DevEnabled}}
+        <a href="/auth/dev/login?{{.Query}}" class="btn btn-dev">Login with Dev User</a>
+        {{end}}
+        {{if not (or .GoogleEnabled .OIDCEnabled .DevEnabled)}}
+        <p>No login methods enabled.</p>
+        {{end}}
+    </div>
+</body>
+</html>`
+
+	t, _ := htmltemplate.New("login").Parse(tmpl)
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	_ = t.Execute(w, data)
 }
 
 func (s *Server) handleDevLogin(w http.ResponseWriter, r *http.Request) {

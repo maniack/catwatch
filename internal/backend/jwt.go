@@ -62,15 +62,9 @@ func (s *Server) RequireAuth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		uid, _ := UserIDFromCtx(r.Context())
 		if uid == "" {
-			if s.cfg.DevLoginEnabled {
-				// Automatic login for dev mode: bypass auth requirement by injecting a dev user
-				u, err := s.store.FindOrCreateUser("dev", "dev@catwatch.local", "dev@catwatch.local", "Dev User", "")
-				if err == nil {
-					ctx := WithUserID(r.Context(), u.ID)
-					next.ServeHTTP(w, r.WithContext(ctx))
-					return
-				}
-			}
+			// RFC 9728 discovery via WWW-Authenticate header
+			metaURL := s.getMetadataURLForResource(r, "/api")
+			w.Header().Add("WWW-Authenticate", fmt.Sprintf("Bearer realm=\"CatWatch\", resource_metadata=\"%s\"", metaURL))
 			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
 			return
 		}
@@ -188,11 +182,84 @@ func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 		_ = s.sessions.Del("sess:" + refreshToken)
 	}
 
-	// Clear cookies
-	http.SetCookie(w, &http.Cookie{Name: "access_token", Value: "", Path: "/", MaxAge: -1})
-	http.SetCookie(w, &http.Cookie{Name: "refresh_token", Value: "", Path: "/", MaxAge: -1})
+	secure := r.TLS != nil || strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https")
+	// Clear cookies with full flags for better GDPR/Security compliance
+	clearCookie := func(name string) {
+		http.SetCookie(w, &http.Cookie{
+			Name:     name,
+			Value:    "",
+			Path:     "/",
+			HttpOnly: true,
+			Secure:   secure,
+			SameSite: http.SameSiteLaxMode,
+			MaxAge:   -1,
+		})
+	}
+	clearCookie("access_token")
+	clearCookie("refresh_token")
 
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+func (s *Server) handleUpdateUser(w http.ResponseWriter, r *http.Request) {
+	uid, _ := UserIDFromCtx(r.Context())
+	var in struct {
+		Name  string `json:"name"`
+		Email string `json:"email"`
+	}
+	if err := jsonNewDecoder(r).Decode(&in); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid json"})
+		return
+	}
+
+	var u storage.User
+	if err := s.store.DB.First(&u, "id = ?", uid).Error; err != nil {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "user not found"})
+		return
+	}
+
+	if in.Name != "" {
+		u.Name = in.Name
+	}
+	if in.Email != "" {
+		u.Email = in.Email
+	}
+
+	if err := s.store.DB.Save(&u).Error; err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+
+	s.LogAudit(r, "user", u.ID, "success", "updated profile")
+	writeJSON(w, http.StatusOK, u)
+}
+
+func (s *Server) handleDeleteUser(w http.ResponseWriter, r *http.Request) {
+	uid, _ := UserIDFromCtx(r.Context())
+
+	// Revoke sessions
+	// Note: Opaque refresh tokens are in Redis/Memory, but we don't have a reverse index uid->tokens.
+	// In a real system, we'd store a list of tokens per user or use a versioned token.
+	// For now, we delete the user record and related data.
+	if err := s.store.DeleteUser(uid); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+
+	// Clear cookies
+	s.handleLogout(w, r)
+}
+
+func (s *Server) handleExportUser(w http.ResponseWriter, r *http.Request) {
+	uid, _ := UserIDFromCtx(r.Context())
+	data, err := s.store.GetUserExport(uid)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+
+	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=catwatch-export-%s.json", uid))
+	writeJSON(w, http.StatusOK, data)
 }
 
 func (s *Server) handleGetUser(w http.ResponseWriter, r *http.Request) {
@@ -257,17 +324,6 @@ func (s *Server) handleBotToken(w http.ResponseWriter, r *http.Request) {
 
 	link, err := s.store.GetBotLink(in.ChatID)
 	if err != nil {
-		if s.cfg.DevLoginEnabled {
-			// In dev mode, return a token for a default dev user even if chat is not linked
-			u, err := s.store.FindOrCreateUser("dev", "dev@catwatch.local", "dev@catwatch.local", "Dev User", "")
-			if err == nil {
-				accessToken, err := s.generateAccessToken(u.ID, s.cfg.AccessTTL)
-				if err == nil {
-					writeJSON(w, http.StatusOK, map[string]string{"access_token": accessToken})
-					return
-				}
-			}
-		}
 		writeJSON(w, http.StatusForbidden, map[string]string{"error": "chat not linked"})
 		return
 	}

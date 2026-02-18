@@ -9,10 +9,14 @@ export default function UserView({ user }) {
   const [likedCats, setLikedCats] = useState([]);
   const [auditLogs, setAuditLogs] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [editing, setEditing] = useState(false);
+  const [editForm, setEditForm] = useState({ name: '', email: '' });
+  const [deleting, setDeleting] = useState(false);
 
   useEffect(() => {
     if (!user) return;
     setLoading(true);
+    setEditForm({ name: user.name || '', email: user.email || '' });
     
     Promise.all([
       api.get('/api/user/likes'),
@@ -44,6 +48,40 @@ export default function UserView({ user }) {
     setLikedCats(prev => prev.filter(c => c.id !== id));
   };
 
+  const handleUpdate = async (e) => {
+    e.preventDefault();
+    try {
+      const updated = await api.patch('/api/user', editForm);
+      window.location.reload(); // Refresh user data globally
+    } catch (err) {
+      alert('Update failed: ' + err.message);
+    }
+  };
+
+  const handleExport = async () => {
+    try {
+      // Direct link download is easier for file exports with correct filename
+      window.location.href = '/api/user/export';
+    } catch (err) {
+      alert('Export failed: ' + err.message);
+    }
+  };
+
+  const handleDeleteAccount = async () => {
+    if (!window.confirm('Are you absolutely sure you want to delete your account? This will remove your likes, bot links, and anonymize your records. This action is irreversible.')) {
+      return;
+    }
+    setDeleting(true);
+    try {
+      await api.del('/api/user');
+      window.location.hash = '#/';
+      window.location.reload();
+    } catch (err) {
+      alert('Deletion failed: ' + err.message);
+      setDeleting(false);
+    }
+  };
+
   if (!user) {
     return (
       <div className="text-center py-5">
@@ -59,14 +97,72 @@ export default function UserView({ user }) {
         <div className="d-flex align-items-center flex-wrap gap-4">
           <Avatar user={user} size={100} className="border shadow-sm" />
           <div className="flex-grow-1">
-            <h2 className="fw-bold mb-1">{user.name || 'Volunteer'}</h2>
-            <p className="text-secondary mb-3">{user.email}</p>
-            <div className="d-flex gap-2">
-              <button className="btn btn-outline-danger btn-sm rounded-pill px-3" onClick={handleLogout}>
-                <i className="fa-solid fa-right-from-bracket me-2"></i>
-                Sign Out
-              </button>
-            </div>
+            {!editing ? (
+              <>
+                <h2 className="fw-bold mb-1">{user.name || 'Volunteer'}</h2>
+                <p className="text-secondary mb-3">{user.email}</p>
+                <div className="d-flex gap-2">
+                  <button className="btn btn-outline-primary btn-sm rounded-pill px-3" onClick={() => setEditing(true)}>
+                    <i className="fa-solid fa-user-pen me-2"></i>
+                    Edit Profile
+                  </button>
+                  <button className="btn btn-outline-danger btn-sm rounded-pill px-3" onClick={handleLogout}>
+                    <i className="fa-solid fa-right-from-bracket me-2"></i>
+                    Sign Out
+                  </button>
+                </div>
+              </>
+            ) : (
+              <form onSubmit={handleUpdate}>
+                <div className="mb-2">
+                  <input
+                    type="text"
+                    className="form-control form-control-sm rounded-pill"
+                    placeholder="Name"
+                    value={editForm.name}
+                    onChange={e => setEditForm({...editForm, name: e.target.value})}
+                    required
+                  />
+                </div>
+                <div className="mb-3">
+                  <input
+                    type="email"
+                    className="form-control form-control-sm rounded-pill"
+                    placeholder="Email"
+                    value={editForm.email}
+                    onChange={e => setEditForm({...editForm, email: e.target.value})}
+                    required
+                  />
+                </div>
+                <div className="d-flex gap-2">
+                  <button type="submit" className="btn btn-primary btn-sm rounded-pill px-3">Save</button>
+                  <button type="button" className="btn btn-light btn-sm rounded-pill px-3" onClick={() => setEditing(false)}>Cancel</button>
+                </div>
+              </form>
+            )}
+          </div>
+        </div>
+
+        <div className="mt-4 pt-3 border-top d-flex justify-content-between align-items-center">
+          <div className="small text-secondary">
+            <i className="fa-solid fa-shield-halved me-2"></i>
+            Manage your personal data
+          </div>
+          <div className="d-flex gap-3 align-items-center">
+            <button 
+              className="btn btn-link btn-sm text-primary text-decoration-none" 
+              onClick={handleExport}
+            >
+              <i className="fa-solid fa-download me-1"></i>
+              Export Data
+            </button>
+            <button 
+              className="btn btn-link btn-sm text-danger text-decoration-none" 
+              onClick={handleDeleteAccount}
+              disabled={deleting}
+            >
+              {deleting ? 'Deleting...' : 'Delete Account'}
+            </button>
           </div>
         </div>
       </div>

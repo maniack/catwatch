@@ -9,6 +9,8 @@ import CatEditView from '../views/CatEditView.jsx';
 import UpcomingView from '../views/UpcomingView.jsx';
 import SignInView from '../views/SignInView.jsx';
 import UserView from '../views/UserView.jsx';
+import PrivacyView from '../views/PrivacyView.jsx';
+import GDPRBanner from './GDPRBanner.jsx';
 import api from '../api/api.js';
 
 export default function App() {
@@ -35,6 +37,8 @@ export default function App() {
     content = <UpcomingView key="upcoming" user={user}/>;
   } else if (route === '#/me') {
     content = <UserView key="me" user={user}/>;
+  } else if (route === '#/privacy') {
+    content = <PrivacyView key="privacy" />;
   } else if (route === '#/signin') {
     content = <SignInView key="signin" config={config} />;
   } else {
@@ -47,6 +51,7 @@ export default function App() {
       <div className="container-fluid py-3">
         {content}
       </div>
+      <GDPRBanner />
     </div>
   );
 }

@@ -87,18 +87,28 @@ func RequestLogger(l *logrus.Logger, debugPaths ...string) func(http.Handler) ht
 				}
 			}
 
-			entry := l.WithContext(r.Context()).WithFields(logrus.Fields{
+			fields := logrus.Fields{
 				"method":      r.Method,
 				"path":        r.URL.Path,
 				"route":       route,
 				"status":      lrw.status,
 				"size":        lrw.size,
 				"duration_ms": float64(time.Since(start).Nanoseconds()) / 1e6,
-				"user_id":     uid,
 				"request_id":  rid,
-			})
+			}
+			if uid != "" {
+				fields["user_id"] = uid
+			}
 
-			if isDebugPath && lrw.status < 400 {
+			entry := l.WithContext(r.Context()).WithFields(fields)
+
+			// GDPR requirement: user_id should be logged at DEBUG level.
+			// If uid is present, we might want to downgrade the whole log entry or just the field.
+			// Here we downgrade the whole entry to DEBUG if uid is present and it's a success.
+			// Downgrade to DEBUG only for successful (<400) requests on debug paths or when user_id is present
+			isLowLevel := lrw.status < 400 && (isDebugPath || uid != "")
+
+			if isLowLevel {
 				entry.Debug("request")
 			} else {
 				entry.Info("request")
@@ -192,8 +202,6 @@ func (s *Server) LogAudit(r *http.Request, targetType, targetID, status, delta s
 		TargetType: targetType,
 		TargetID:   targetID,
 		Status:     status,
-		IP:         r.RemoteAddr,
-		UserAgent:  r.UserAgent(),
 		RequestID:  rid,
 		Delta:      delta,
 	}
@@ -201,4 +209,42 @@ func (s *Server) LogAudit(r *http.Request, targetType, targetID, status, delta s
 	if err := s.store.DB.Create(&entry).Error; err != nil {
 		s.log.WithError(err).Error("failed to write audit log")
 	}
+}
+
+// CSRFProtection implements a simple CSRF check for state-changing requests.
+func (s *Server) CSRFProtection(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Only check state-changing methods
+		if r.Method == http.MethodPost || r.Method == http.MethodPut || r.Method == http.MethodDelete || r.Method == http.MethodPatch {
+			// Skip for non-browser/bot clients if they use Authorization header instead of cookies
+			if r.Header.Get("Authorization") != "" {
+				next.ServeHTTP(w, r)
+				return
+			}
+
+			// Check X-CSRF-Token header
+			// For simplicity, we just require the header to be present for now,
+			// which is often enough to prevent cross-site form submissions.
+			if r.Header.Get("X-CSRF-Token") == "" {
+				path := r.URL.Path
+				// Allow certain paths without CSRF for dev and bots and refresh
+				if path == "/api/auth/dev-login" || path == "/api/auth/refresh" || strings.HasPrefix(path, "/api/bot/") {
+					next.ServeHTTP(w, r)
+					return
+				}
+
+				// If there are no session cookies at all, let auth middleware decide (avoid 403 for anonymous)
+				if _, err1 := r.Cookie("access_token"); err1 != nil {
+					if _, err2 := r.Cookie("refresh_token"); err2 != nil {
+						next.ServeHTTP(w, r)
+						return
+					}
+				}
+
+				writeJSON(w, http.StatusForbidden, map[string]string{"error": "CSRF token missing"})
+				return
+			}
+		}
+		next.ServeHTTP(w, r)
+	})
 }
