@@ -181,6 +181,16 @@ func main() {
 				log.Fatalf("init server: %v", err)
 			}
 
+			if srv.GoogleEnabled() {
+				log.Info("Google OAuth2 is enabled")
+			}
+			if srv.OIDCEnabled() {
+				log.Info("OIDC is enabled")
+			}
+			if srv.DevEnabled() {
+				log.Info("Development login is enabled")
+			}
+
 			addr := c.String("listen")
 			web := &http.Server{
 				Addr:              addr,

@@ -931,3 +931,33 @@ func TestPublicCatIncludesAttributes(t *testing.T) {
 		t.Fatalf("expected birth_date starting with 2018-01-02, got %v", got["birth_date"])
 	}
 }
+
+func TestAuthServerMetadata(t *testing.T) {
+	s := newTestServer(t)
+	// Enable Google OAuth without RedirectURL
+	s.cfg.OAuth.GoogleClientID = "id"
+	s.cfg.OAuth.GoogleClientSecret = "secret"
+	// GoogleRedirectURL is omitted
+
+	req := httptest.NewRequest(http.MethodGet, "/.well-known/oauth-authorization-server", nil)
+	w := httptest.NewRecorder()
+	s.Router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("Expected 200, got %d", w.Code)
+	}
+
+	var meta map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &meta); err != nil {
+		t.Fatalf("Failed to unmarshal: %v", err)
+	}
+
+	config, ok := meta["x_catwatch_config"].(map[string]any)
+	if !ok {
+		t.Fatalf("x_catwatch_config missing or not a map. Got: %v", meta)
+	}
+
+	if config["google_enabled"] != true {
+		t.Errorf("Expected google_enabled true even without RedirectURL. Body: %s", w.Body.String())
+	}
+}

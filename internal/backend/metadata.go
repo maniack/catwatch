@@ -70,9 +70,9 @@ func (s *Server) handleAuthorizationServerMetadata(w http.ResponseWriter, r *htt
 		GrantTypesSupported:    []string{"authorization_code", "refresh_token"},
 	}
 
-	metadata.Config.GoogleEnabled = s.cfg.OAuth.GoogleClientID != "" && s.cfg.OAuth.GoogleClientSecret != "" && s.cfg.OAuth.GoogleRedirectURL != ""
-	metadata.Config.OIDCEnabled = s.cfg.OAuth.OIDCIssuer != "" && s.cfg.OAuth.OIDCClientID != "" && s.cfg.OAuth.OIDCRedirectURL != ""
-	metadata.Config.DevLogin = s.cfg.DevLoginEnabled
+	metadata.Config.GoogleEnabled = s.GoogleEnabled()
+	metadata.Config.OIDCEnabled = s.OIDCEnabled()
+	metadata.Config.DevLogin = s.DevEnabled()
 
 	writeJSON(w, http.StatusOK, metadata)
 }

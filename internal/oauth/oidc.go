@@ -47,7 +47,7 @@ func (h *Handler) oidcCallback(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) oidcConfig(ctx context.Context, r *http.Request, p providerParams) (*oidc.Provider, *oauth2.Config, error) {
-	if p.issuer == "" || p.clientID == "" || p.clientSecret == "" || p.redirectURL == "" {
+	if p.issuer == "" || p.clientID == "" || p.clientSecret == "" {
 		return nil, nil, fmt.Errorf("OIDC not configured")
 	}
 
@@ -56,7 +56,11 @@ func (h *Handler) oidcConfig(ctx context.Context, r *http.Request, p providerPar
 		return nil, nil, fmt.Errorf("failed to get provider: %v", err)
 	}
 
-	absRedirectURL := GetAbsoluteURL(r, p.redirectURL)
+	redirectURL := p.redirectURL
+	if redirectURL == "" {
+		redirectURL = "/auth/" + p.name + "/callback"
+	}
+	absRedirectURL := GetAbsoluteURL(r, redirectURL)
 
 	conf := &oauth2.Config{
 		ClientID:     p.clientID,
@@ -203,6 +207,7 @@ func (h *Handler) doOIDCCallback(w http.ResponseWriter, r *http.Request, p provi
 	if meta.ChatID != 0 {
 		// For telegram, we can show a success message
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.Header().Set("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate")
 		fmt.Fprintf(w, "<h2>Authorization successful!</h2><p>You can now return to the Telegram bot.</p>")
 	} else {
 		// For SPA, redirect to home

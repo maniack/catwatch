@@ -34,9 +34,9 @@ func (s *Server) handleLoginPage(w http.ResponseWriter, r *http.Request) {
 		Query         string
 	}{
 		Lang:          lang,
-		GoogleEnabled: s.cfg.OAuth.GoogleClientID != "" && s.cfg.OAuth.GoogleClientSecret != "" && s.cfg.OAuth.GoogleRedirectURL != "",
-		OIDCEnabled:   s.cfg.OAuth.OIDCIssuer != "" && s.cfg.OAuth.OIDCClientID != "" && s.cfg.OAuth.OIDCRedirectURL != "",
-		DevEnabled:    s.cfg.DevLoginEnabled,
+		GoogleEnabled: s.GoogleEnabled(),
+		OIDCEnabled:   s.OIDCEnabled(),
+		DevEnabled:    s.DevEnabled(),
 		Query:         r.URL.RawQuery,
 	}
 
@@ -80,6 +80,7 @@ func (s *Server) handleLoginPage(w http.ResponseWriter, r *http.Request) {
 
 	t, _ := htmltemplate.New("login").Parse(tmpl)
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate")
 	_ = t.Execute(w, data)
 }
 
@@ -151,6 +152,7 @@ func (s *Server) handleDevLoginGET(w http.ResponseWriter, r *http.Request) {
 
 	if tgChatID != 0 {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.Header().Set("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate")
 		title := l10n.T(lang, "auth_success_title")
 		msg := l10n.T(lang, "auth_success_msg", map[string]int64{"ChatID": tgChatID})
 		fmt.Fprintf(w, "<h2>%s</h2><p>%s</p>", title, msg)
@@ -885,6 +887,7 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 	copyright := fmt.Sprintf("CatWatch © %d", time.Now().Year())
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate")
 	err = tmpl.Execute(w, map[string]any{
 		"Version":   s.cfg.Version,
 		"Copyright": copyright,

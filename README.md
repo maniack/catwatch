@@ -126,33 +126,57 @@ Note: Some external clients (e.g., current versions of desktop apps) may only su
 
 The bot interface automatically adapts to your Telegram language (supports English and Russian).
 
-Bot configuration:
-- `--tg-token` (ENV: `TG_TOKEN`) — Telegram bot token.
-- `--api-url` (ENV: `API_URL`, default: `http://localhost:8080`) — Internal CatWatch API URL.
-- `--public-api-url` (ENV: `PUBLIC_API_URL`) — Public CatWatch API URL for authorization links (useful for Docker).
-- `--bot-api-key` (ENV: `BOT_API_KEY`) — Secret key for bot authentication in API.
-- `--debug` (ENV: `DEBUG`) — Enable debug mode.
-
 ## Configuration
-Parameters are set via flags or environment variables:
-- `--listen` (ENV: `LISTEN`, default: `:8080`) — Server address.
-- `--db` (ENV: `DB_PATH`, default: `catwatch.db`) — Database DSN.
-  - SQLite: `catwatch.db` or `file::memory:?cache=shared`.
-  - Postgres: `postgres://user:pass@host:5432/dbname?sslmode=disable`.
-- `--debug` (ENV: `DEBUG`) — Enable extended logging.
-- `--cors-origin` (ENV: `CORS_ORIGIN`) — Allowed CORS origins.
-- `--bot-api-key` (ENV: `BOT_API_KEY`) — Secret key for the bot.
-- `--jwt-secret` (ENV: `JWT_SECRET`) — JWT signing secret (required for production).
-- `--audit-log-ttl` (ENV: `AUDIT_LOG_TTL`, default: `30 days`) — TTL for audit logs.
+The application can be configured via command-line flags or environment variables. Environment variables take precedence over default values but flags take precedence over environment variables.
 
-### Authentication (OAuth2 / OIDC)
-- `--devel` (ENV: `DEV_LOGIN=1`) — enables dev login for testing (`POST /api/auth/dev-login`).
-- `--auth-success-redirect` (ENV: `AUTH_SUCCESS_REDIRECT`) — custom URL to redirect to after successful login (default `/`).
-- `--google-client-id`, `--google-client-secret`, `--google-redirect-url` — Settings for Google OAuth2.
-- `--oidc-issuer`, `--oidc-client-id`, `--oidc-client-secret`, `--oidc-redirect-url` — Settings for a custom OIDC provider.
-- `--session-redis`, `--session-redis-pass`, `--session-redis-prefix` — Redis settings for session storage. If not specified, in-memory storage is used (development only).
-- `--auth-access-ttl` — Access token (JWT) TTL, default 15 minutes.
-- `--auth-refresh-ttl` — Refresh token TTL, default 30 days.
+### Global Settings (Common for Backend and Bot)
+| Parameter | ENV | Default | Description |
+|-----------|-----|---------|-------------|
+| `--listen` | `LISTEN` | `:8080` | HTTP listen address. |
+| `--debug` | `DEBUG` | `false` | Enable debug logging. |
+| `--log-format`| `LOG_FORMAT`| `text` | Log format: `text` or `json`. |
+| `--healthz-endpoint`| `HEALTHZ_ENDPOINT`| `/healthz` | Path for health check endpoints. |
+
+### Backend Settings (`catwatch`)
+| Parameter | ENV | Default | Description |
+|-----------|-----|---------|-------------|
+| `--db` | `DB_PATH` | `catwatch.db` | Database DSN (SQLite or Postgres). |
+| `--jwt-secret` | `JWT_SECRET` | *(auto)* | **[Required for Production]** JWT signing secret. |
+| `--bot-api-key`| `BOT_API_KEY`| | Secret key for bot authentication. |
+| `--cors-origin`| `CORS_ORIGIN`| `*` | Allowed CORS origins (comma-separated or multiple flags). |
+| `--devel` | `DEV_LOGIN` | `false` | Enable dev login (`POST /api/auth/dev-login`). |
+| `--audit-log-ttl`| `AUDIT_LOG_TTL`| `720h` (30d)| Retention period for audit logs. |
+| `--metrics-endpoint`| `METRICS_ENDPOINT`| `/metrics` | Prometheus metrics endpoint. |
+
+#### Authentication (OAuth2 / OIDC)
+| Parameter | ENV | Default | Description |
+|-----------|-----|---------|-------------|
+| `--google-client-id` | `GOOGLE_CLIENT_ID` | | **[Required for Google Auth]** |
+| `--google-client-secret`| `GOOGLE_CLIENT_SECRET`| | **[Required for Google Auth]** |
+| `--google-redirect-url`| `GOOGLE_REDIRECT_URL`| | Redirect URL for Google OAuth2. |
+| `--oidc-issuer` | `OIDC_ISSUER` | | OIDC Provider Issuer URL. |
+| `--oidc-client-id` | `OIDC_CLIENT_ID` | | OIDC Client ID. |
+| `--oidc-client-secret`| `OIDC_CLIENT_SECRET`| | OIDC Client Secret. |
+| `--oidc-redirect-url`| `OIDC_REDIRECT_URL` | | Redirect URL for OIDC. |
+| `--auth-success-redirect`| `AUTH_SUCCESS_REDIRECT`| `/` | Redirect URL after successful login. |
+| `--auth-access-ttl` | `AUTH_ACCESS_TTL` | `15m` | Access token (JWT) TTL. |
+| `--auth-refresh-ttl`| `AUTH_REFRESH_TTL` | `720h`| Refresh token TTL. |
+
+#### Session Storage (Redis)
+If not specified, an in-memory storage is used (suitable for development only).
+| Parameter | ENV | Default | Description |
+|-----------|-----|---------|-------------|
+| `--session-redis` | `SESSION_REDIS` | | Redis address (`host:port`). |
+| `--session-redis-pass`| `SESSION_REDIS_PASS`| | Redis password. |
+| `--session-redis-prefix`| `SESSION_REDIS_PREFIX`| `catwatch:oauth:`| Key prefix in Redis. |
+
+### Telegram Bot Settings (`catwatch_bot`)
+| Parameter | ENV | Default | Description |
+|-----------|-----|---------|-------------|
+| `--tg-token` | `TG_TOKEN` | | **[Required]** Telegram bot token from @BotFather. |
+| `--api-url` | `API_URL` | `http://localhost:8080`| Internal API URL (accessible from bot). |
+| `--public-api-url`| `PUBLIC_API_URL` | | Public API URL for auth links. |
+| `--bot-api-key` | `BOT_API_KEY` | | **[Required]** Must match the key on the backend. |
 
 ## API Endpoints
 ### Authentication

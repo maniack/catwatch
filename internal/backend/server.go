@@ -275,6 +275,18 @@ func (s *Server) handleReady(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 }
 
+func (s *Server) GoogleEnabled() bool {
+	return s.cfg.OAuth.GoogleClientID != "" && s.cfg.OAuth.GoogleClientSecret != ""
+}
+
+func (s *Server) OIDCEnabled() bool {
+	return s.cfg.OAuth.OIDCIssuer != "" && s.cfg.OAuth.OIDCClientID != "" && s.cfg.OAuth.OIDCClientSecret != ""
+}
+
+func (s *Server) DevEnabled() bool {
+	return s.cfg.DevLoginEnabled
+}
+
 // helpers
 func writeJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json")

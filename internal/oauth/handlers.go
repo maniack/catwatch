@@ -44,10 +44,10 @@ func NewHandler(store *storage.Store, logger *logrus.Logger, cfg Config, sessSto
 }
 
 func (h *Handler) GoogleEnabled() bool {
-	return h.cfg.GoogleClientID != "" && h.cfg.GoogleClientSecret != "" && h.cfg.GoogleRedirectURL != ""
+	return h.cfg.GoogleClientID != "" && h.cfg.GoogleClientSecret != ""
 }
 func (h *Handler) OIDCEnabled() bool {
-	return h.cfg.OIDCIssuer != "" && h.cfg.OIDCClientID != "" && h.cfg.OIDCClientSecret != "" && h.cfg.OIDCRedirectURL != ""
+	return h.cfg.OIDCIssuer != "" && h.cfg.OIDCClientID != "" && h.cfg.OIDCClientSecret != ""
 }
 
 func (h *Handler) HandleGoogleLogin(w http.ResponseWriter, r *http.Request) { h.googleLogin(w, r) }
