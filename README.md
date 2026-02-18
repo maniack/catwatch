@@ -21,7 +21,8 @@ An application for volunteers and organizations dedicated to helping homeless ca
 - Prometheus metrics and health endpoints (Liveness/Readiness).
 - JWT authorization (secret generated automatically) and OAuth2 (Google, OIDC).
 - Session and refresh token storage in Redis (with in-memory fallback).
-- Audit system for all data changes.
+- **Audit system for all data changes.**
+- **GDPR Compliance**: Data portability (export), right to be forgotten (account deletion), data minimization (minimal logging and audit trail), and transparent Privacy Policy.
 - Public access to the cat list with sensitive information filtering.
 
 ## Architecture
@@ -63,6 +64,7 @@ Main bot commands:
 - `/cats` — list of cats.
 - `/add_cat` — add a new cat.
 - `/help` — detailed user guide.
+- `/delete_me` — full account and data deletion.
 - `/cancel` — cancel current action.
 
 *Features:*
@@ -139,6 +141,8 @@ Parameters are set via flags or environment variables:
 - `--debug` (ENV: `DEBUG`) — Enable extended logging.
 - `--cors-origin` (ENV: `CORS_ORIGIN`) — Allowed CORS origins.
 - `--bot-api-key` (ENV: `BOT_API_KEY`) — Secret key for the bot.
+- `--jwt-secret` (ENV: `JWT_SECRET`) — JWT signing secret (required for production).
+- `--audit-log-ttl` (ENV: `AUDIT_LOG_TTL`, default: `30 days`) — TTL for audit logs.
 
 ### Authentication (OAuth2 / OIDC)
 - `--devel` (ENV: `DEV_LOGIN=1`) — enables dev login for testing (`POST /api/auth/dev-login`).
@@ -160,6 +164,9 @@ Parameters are set via flags or environment variables:
 - `POST /api/auth/refresh` — Token refresh.
 - `POST /api/auth/logout` — Logout.
 - `GET /api/user` — Information about the current user (requires JWT).
+- `PATCH /api/user` — Update user profile (name, email).
+- `DELETE /api/user` — Delete user account and associated personal data.
+- `GET /api/user/export` — Export all personal data in JSON format.
 - `GET /api/user/likes` — List of cats liked by the current user.
 - `GET /api/user/audit` — Activity log for the current user.
 
@@ -188,6 +195,16 @@ Parameters are set via flags or environment variables:
 - `GET /healthz/alive` — Liveness check (Backend & Bot).
 - `GET /healthz/ready` — Readiness check (Backend: DB connection; Bot: Telegram connection).
 - `GET /metrics` — Prometheus metrics (Backend).
+- `GET /api/mcp` — MCP SSE endpoint (requires JWT).
+
+## GDPR and Privacy
+CatWatch is designed with privacy in mind:
+- **Data Minimization**: We only collect what's necessary (name, email from OAuth). IP addresses and User Agents are not stored in the database.
+- **Transparency**: A Privacy Policy is available at `#/privacy`.
+- **Consent**: A cookie consent banner informs users about strictly necessary cookies used for authentication.
+- **Data Portability**: Users can export all their data via the profile page or API.
+- **Right to Erasure**: Users can delete their accounts, which removes personal profiles, bot links, and anonymizes activity records.
+- **Retention**: Audit logs are automatically pruned after the configured TTL (default 30 days).
 
 ## Docker
 ### Build image

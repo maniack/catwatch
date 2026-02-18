@@ -15,6 +15,8 @@ services:
       - DEBUG=true
       - DEV_LOGIN=1
       - BOT_API_KEY=${BOT_API_KEY:-test-bot-key}
+      - JWT_SECRET=${JWT_SECRET:-catwatch-dev-secret}
+      - AUDIT_LOG_TTL=${AUDIT_LOG_TTL:-720h}
       - SESSION_REDIS=redis:6379
       - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}
       - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET}
