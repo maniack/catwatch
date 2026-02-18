@@ -342,7 +342,7 @@ func (b *Bot) handleConversation(msg *tgbotapi.Message, state *ConversationState
 			delete(b.states, msg.Chat.ID)
 		}
 	case "add_loc":
-		if strings.TrimSpace(msg.Text) == l10n.T(lang, "btn_just_seen") || strings.TrimSpace(msg.Text) == "✅ Just seen" || strings.TrimSpace(msg.Text) == "✅ Только пометку" {
+		if strings.TrimSpace(msg.Text) == l10n.T(lang, "btn_just_seen") || strings.TrimSpace(msg.Text) == "✅ Just seen" || strings.TrimSpace(msg.Text) == l10n.T("ru", "btn_just_seen") {
 			b.observeCat(msg.Chat.ID, state.CatID, lang)
 			delete(b.states, msg.Chat.ID)
 			b.sendMainMenu(msg.Chat.ID, lang, l10n.T(lang, "msg_done_next"))
@@ -469,14 +469,14 @@ func (b *Bot) handleConversation(msg *tgbotapi.Message, state *ConversationState
 		b.replyWithKeyboard(msg.Chat.ID, l10n.T(lang, "msg_obs_note_prompt"), b.skipCancelKeyboard(lang))
 
 	case "obs_note":
-		if strings.ToLower(msg.Text) != l10n.T(lang, "menu_skip") && strings.ToLower(msg.Text) != "skip" && strings.ToLower(msg.Text) != "пропустить" {
+		if strings.ToLower(msg.Text) != l10n.T(lang, "menu_skip") && strings.ToLower(msg.Text) != "skip" && strings.ToLower(msg.Text) != l10n.T("ru", "menu_skip") {
 			state.Record.Note = msg.Text
 		}
 		state.Step = "obs_photo"
 		b.replyWithKeyboard(msg.Chat.ID, l10n.T(lang, "msg_obs_photo_prompt"), b.skipCancelKeyboard(lang))
 
 	case "obs_photo":
-		if strings.ToLower(msg.Text) != l10n.T(lang, "menu_skip") && strings.ToLower(msg.Text) != "skip" && strings.ToLower(msg.Text) != "пропустить" {
+		if strings.ToLower(msg.Text) != l10n.T(lang, "menu_skip") && strings.ToLower(msg.Text) != "skip" && strings.ToLower(msg.Text) != l10n.T("ru", "menu_skip") {
 			if len(msg.Photo) > 0 {
 				if err := b.processIncomingPhoto(msg.Chat.ID, state, msg, lang); err != nil {
 					b.log.Errorf("photo upload failed: %v", err)
@@ -498,7 +498,7 @@ func (b *Bot) handleConversation(msg *tgbotapi.Message, state *ConversationState
 		b.replyWithKeyboard(msg.Chat.ID, l10n.T(lang, "msg_obs_loc_prompt"), kb)
 
 	case "obs_loc":
-		if strings.ToLower(msg.Text) != l10n.T(lang, "menu_skip") && strings.ToLower(msg.Text) != "skip" && strings.ToLower(msg.Text) != "пропустить" {
+		if strings.ToLower(msg.Text) != l10n.T(lang, "menu_skip") && strings.ToLower(msg.Text) != "skip" && strings.ToLower(msg.Text) != l10n.T("ru", "menu_skip") {
 			if msg.Location != nil {
 				token, ok := b.ensureAuth(msg.Chat.ID, lang)
 				if ok {
