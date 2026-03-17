@@ -156,6 +156,15 @@ type Like struct {
 	UserID string `gorm:"type:char(36);index:idx_cat_user,unique" json:"user_id"`
 }
 
+// OAuthClient represents a dynamically registered OAuth client (RFC 7591).
+type OAuthClient struct {
+	ID           string    `gorm:"type:char(36);primaryKey" json:"client_id"`
+	Secret       string    `gorm:"type:text" json:"client_secret,omitempty"`
+	Name         string    `gorm:"type:text" json:"client_name,omitempty"`
+	RedirectURIs string    `gorm:"type:text" json:"redirect_uris"` // Comma-separated
+	CreatedAt    time.Time `json:"client_id_issued_at"`
+}
+
 type Store struct {
 	DB *gorm.DB
 }
@@ -203,6 +212,7 @@ func Open(dsn string) (*Store, error) {
 		&BotLink{},
 		&Setting{},
 		&Like{},
+		&OAuthClient{},
 	); err != nil {
 		return nil, fmt.Errorf("auto-migrate: %w", err)
 	}
@@ -437,4 +447,18 @@ func (s *Store) GetUserExport(userID string) (map[string]any, error) {
 		"records":    records,
 		"audit_logs": auditLogs,
 	}, nil
+}
+
+func (s *Store) CreateOAuthClient(name string, redirectURIs []string) (*OAuthClient, error) {
+	client := &OAuthClient{
+		ID:           NewUUID(),
+		Secret:       NewUUID(), // Simple random secret
+		Name:         name,
+		RedirectURIs: strings.Join(redirectURIs, ","),
+		CreatedAt:    time.Now(),
+	}
+	if err := s.DB.Create(client).Error; err != nil {
+		return nil, err
+	}
+	return client, nil
 }

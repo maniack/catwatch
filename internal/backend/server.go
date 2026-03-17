@@ -154,6 +154,9 @@ func NewServer(cfg Config) (*Server, error) {
 	// OpenID Connect Discovery
 	r.Get("/.well-known/openid-configuration", s.handleAuthorizationServerMetadata)
 
+	// RFC 7591 Dynamic Client Registration
+	r.Post("/api/auth/register", s.handleRegisterClient)
+
 	// API
 	r.Route("/api", func(r chi.Router) {
 		r.Get("/records/planned", s.listAllPlannedRecords)

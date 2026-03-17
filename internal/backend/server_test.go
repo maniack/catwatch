@@ -960,4 +960,43 @@ func TestAuthServerMetadata(t *testing.T) {
 	if config["google_enabled"] != true {
 		t.Errorf("Expected google_enabled true even without RedirectURL. Body: %s", w.Body.String())
 	}
+
+	if meta["registration_endpoint"] == nil {
+		t.Errorf("Expected registration_endpoint in metadata, but got nil. Body: %s", w.Body.String())
+	}
+
+	regURL, ok := meta["registration_endpoint"].(string)
+	if !ok || !strings.Contains(regURL, "/api/auth/register") {
+		t.Errorf("registration_endpoint is invalid: %v", meta["registration_endpoint"])
+	}
+
+	// Test registration endpoint
+	regReq := map[string]any{
+		"client_name":   "Test Client",
+		"redirect_uris": []string{"http://localhost:1234/callback"},
+	}
+	regBody, _ := json.Marshal(regReq)
+	reqReg := httptest.NewRequest(http.MethodPost, "/api/auth/register", bytes.NewReader(regBody))
+	wReg := httptest.NewRecorder()
+	s.Router.ServeHTTP(wReg, reqReg)
+
+	if wReg.Code != http.StatusCreated {
+		t.Fatalf("Expected 201 for registration, got %d. Body: %s", wReg.Code, wReg.Body.String())
+	}
+
+	var regResp map[string]any
+	if err := json.Unmarshal(wReg.Body.Bytes(), &regResp); err != nil {
+		t.Fatalf("Failed to unmarshal registration response: %v", err)
+	}
+
+	if regResp["client_id"] == nil {
+		t.Errorf("Expected client_id in registration response")
+	}
+	if regResp["client_name"] != "Test Client" {
+		t.Errorf("Expected client_name 'Test Client', got %v", regResp["client_name"])
+	}
+	uris := regResp["redirect_uris"].([]any)
+	if uris[0] != "http://localhost:1234/callback" {
+		t.Errorf("Expected redirect_uri 'http://localhost:1234/callback', got %v", uris[0])
+	}
 }

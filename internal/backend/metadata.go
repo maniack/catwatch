@@ -1,6 +1,7 @@
 package backend
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"strings"
@@ -42,6 +43,7 @@ type OAuthAuthorizationServerMetadata struct {
 	Issuer                 string   `json:"issuer"`
 	AuthorizationEndpoint  string   `json:"authorization_endpoint,omitempty"`
 	TokenEndpoint          string   `json:"token_endpoint,omitempty"`
+	RegistrationEndpoint   string   `json:"registration_endpoint,omitempty"`
 	UserinfoEndpoint       string   `json:"userinfo_endpoint,omitempty"`
 	ScopesSupported        []string `json:"scopes_supported,omitempty"`
 	ResponseTypesSupported []string `json:"response_types_supported,omitempty"`
@@ -64,6 +66,7 @@ func (s *Server) handleAuthorizationServerMetadata(w http.ResponseWriter, r *htt
 		Issuer:                 baseURL,
 		AuthorizationEndpoint:  baseURL + "/auth/login",
 		TokenEndpoint:          baseURL + "/api/auth/refresh",
+		RegistrationEndpoint:   baseURL + "/api/auth/register",
 		UserinfoEndpoint:       baseURL + "/api/user",
 		ScopesSupported:        []string{"openid", "profile", "email"},
 		ResponseTypesSupported: []string{"code"},
@@ -75,6 +78,46 @@ func (s *Server) handleAuthorizationServerMetadata(w http.ResponseWriter, r *htt
 	metadata.Config.DevLogin = s.DevEnabled()
 
 	writeJSON(w, http.StatusOK, metadata)
+}
+
+// handleRegisterClient handles RFC 7591 Dynamic Client Registration.
+func (s *Server) handleRegisterClient(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		ClientName   string   `json:"client_name"`
+		RedirectURIs []string `json:"redirect_uris"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		// RFC 7591 expects specific error responses, but 400 is a good start.
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_request"})
+		return
+	}
+
+	if len(req.RedirectURIs) == 0 {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_redirect_uri"})
+		return
+	}
+
+	client, err := s.store.CreateOAuthClient(req.ClientName, req.RedirectURIs)
+	if err != nil {
+		s.log.Errorf("Failed to register client: %v", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "server_error"})
+		return
+	}
+
+	// RFC 7591 Response
+	response := map[string]any{
+		"client_id":                  client.ID,
+		"client_secret":              client.Secret,
+		"client_id_issued_at":        client.CreatedAt.Unix(),
+		"client_name":                client.Name,
+		"redirect_uris":              req.RedirectURIs,
+		"grant_types":                []string{"authorization_code", "refresh_token"},
+		"response_types":             []string{"code"},
+		"token_endpoint_auth_method": "none", // Assuming public client for now
+	}
+
+	writeJSON(w, http.StatusCreated, response)
 }
 
 func (s *Server) getBaseURL(r *http.Request) string {
