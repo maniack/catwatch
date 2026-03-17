@@ -462,3 +462,11 @@ func (s *Store) CreateOAuthClient(name string, redirectURIs []string) (*OAuthCli
 	}
 	return client, nil
 }
+
+func (s *Store) GetOAuthClient(id string) (*OAuthClient, error) {
+	var client OAuthClient
+	if err := s.DB.First(&client, "id = ?", id).Error; err != nil {
+		return nil, err
+	}
+	return &client, nil
+}

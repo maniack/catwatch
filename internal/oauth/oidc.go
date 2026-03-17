@@ -24,6 +24,9 @@ type providerParams struct {
 type stateMeta struct {
 	ChatID int64  `json:"chat_id,omitempty"`
 	Nonce  string `json:"nonce,omitempty"`
+	// RFC 6749 Authorization Parameters
+	OAuthState       string `json:"oauth_state,omitempty"`
+	OAuthRedirectURI string `json:"oauth_redirect_uri,omitempty"`
 }
 
 func (h *Handler) oidcLogin(w http.ResponseWriter, r *http.Request) {
@@ -92,6 +95,10 @@ func (h *Handler) doOIDCLogin(w http.ResponseWriter, r *http.Request, p provider
 		fmt.Sscanf(tgID, "%d", &meta.ChatID)
 		meta.Nonce = r.URL.Query().Get("tg_nonce")
 	}
+
+	// Capture OAuth context if present
+	meta.OAuthState = r.URL.Query().Get("state")
+	meta.OAuthRedirectURI = r.URL.Query().Get("redirect_uri")
 
 	metaBytes, _ := json.Marshal(meta)
 	_ = h.sessions.Set(sessionKey, metaBytes, 15*time.Minute)
@@ -209,6 +216,29 @@ func (h *Handler) doOIDCCallback(w http.ResponseWriter, r *http.Request, p provi
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.Header().Set("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate")
 		fmt.Fprintf(w, "<h2>Authorization successful!</h2><p>You can now return to the Telegram bot.</p>")
+	} else if meta.OAuthRedirectURI != "" {
+		// RFC 6749 §4.1.2. Authorization Response
+		// We issue a code for the OAuth client
+		code := randomState() // Reuse same helper for random string
+		sessData := map[string]any{
+			"uid": u.ID,
+			"iat": time.Now().Unix(),
+		}
+		sessBytes, _ := json.Marshal(sessData)
+		_ = h.sessions.Set("auth_code:"+code, sessBytes, 5*time.Minute)
+
+		target, err := url.Parse(meta.OAuthRedirectURI)
+		if err != nil {
+			http.Redirect(w, r, h.appRedirect, http.StatusFound)
+			return
+		}
+		q := target.Query()
+		q.Set("code", code)
+		if meta.OAuthState != "" {
+			q.Set("state", meta.OAuthState)
+		}
+		target.RawQuery = q.Encode()
+		http.Redirect(w, r, target.String(), http.StatusFound)
 	} else {
 		// For SPA, redirect to home
 		http.Redirect(w, r, h.appRedirect, http.StatusFound)

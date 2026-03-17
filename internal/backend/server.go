@@ -156,6 +156,8 @@ func NewServer(cfg Config) (*Server, error) {
 
 	// RFC 7591 Dynamic Client Registration
 	r.Post("/api/auth/register", s.handleRegisterClient)
+	// RFC 6749 Token Endpoint
+	r.Post("/api/auth/token", s.handleTokenExchange)
 
 	// API
 	r.Route("/api", func(r chi.Router) {

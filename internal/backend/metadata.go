@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/oauthex"
 )
@@ -65,7 +66,7 @@ func (s *Server) handleAuthorizationServerMetadata(w http.ResponseWriter, r *htt
 	metadata := OAuthAuthorizationServerMetadata{
 		Issuer:                 baseURL,
 		AuthorizationEndpoint:  baseURL + "/auth/login",
-		TokenEndpoint:          baseURL + "/api/auth/refresh",
+		TokenEndpoint:          baseURL + "/api/auth/token",
 		RegistrationEndpoint:   baseURL + "/api/auth/register",
 		UserinfoEndpoint:       baseURL + "/api/user",
 		ScopesSupported:        []string{"openid", "profile", "email"},
@@ -118,6 +119,92 @@ func (s *Server) handleRegisterClient(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusCreated, response)
+}
+
+// handleTokenExchange handles RFC 6749 Token Endpoint.
+func (s *Server) handleTokenExchange(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_request"})
+		return
+	}
+
+	grantType := r.Form.Get("grant_type")
+	if grantType == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_request", "error_description": "grant_type is required"})
+		return
+	}
+
+	if grantType == "authorization_code" {
+		code := r.Form.Get("code")
+		if code == "" {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_request", "error_description": "code is required"})
+			return
+		}
+
+		val, err := s.sessions.Get("auth_code:" + code)
+		if err != nil || val == nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_grant", "error_description": "invalid or expired code"})
+			return
+		}
+		_ = s.sessions.Del("auth_code:" + code)
+
+		var sessData map[string]any
+		_ = json.Unmarshal(val, &sessData)
+		uid, _ := sessData["uid"].(string)
+
+		// Check client credentials if provided (RFC 6749 §3.2.1)
+		// For MCP/Claude it might be a public client or it might provide client_id/client_secret.
+		// If they provide it, we should validate.
+		clientID := r.Form.Get("client_id")
+		clientSecret := r.Form.Get("client_secret")
+		if clientID != "" {
+			client, err := s.store.GetOAuthClient(clientID)
+			if err != nil {
+				writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "invalid_client"})
+				return
+			}
+			if client.Secret != "" && clientSecret != "" && client.Secret != clientSecret {
+				writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "invalid_client"})
+				return
+			}
+		}
+
+		// Issue tokens
+		accessTTL := s.cfg.AccessTTL
+		if accessTTL == 0 {
+			accessTTL = 15 * time.Minute
+		}
+		refreshTTL := s.cfg.RefreshTTL
+		if refreshTTL == 0 {
+			refreshTTL = 30 * 24 * time.Hour
+		}
+
+		accessToken, err := s.generateAccessToken(uid, accessTTL)
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "server_error"})
+			return
+		}
+		refreshToken := s.generateOpaqueToken()
+		rsessData := map[string]any{"uid": uid, "iat": time.Now().Unix()}
+		rsessBytes, _ := json.Marshal(rsessData)
+		_ = s.sessions.Set("sess:"+refreshToken, rsessBytes, refreshTTL)
+
+		writeJSON(w, http.StatusOK, map[string]any{
+			"access_token":  accessToken,
+			"token_type":    "Bearer",
+			"expires_in":    int(accessTTL.Seconds()),
+			"refresh_token": refreshToken,
+		})
+		return
+	}
+
+	if grantType == "refresh_token" {
+		// Use existing refresh logic
+		s.handleRefresh(w, r)
+		return
+	}
+
+	writeJSON(w, http.StatusBadRequest, map[string]string{"error": "unsupported_grant_type"})
 }
 
 func (s *Server) getBaseURL(r *http.Request) string {

@@ -1,12 +1,14 @@
 package backend
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
 	htmltemplate "html/template"
 	"io"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -24,6 +26,29 @@ func (s *Server) handleLoginPage(w http.ResponseWriter, r *http.Request) {
 	lang := "en"
 	if l, ok := r.Context().Value(logging.ContextLang).(string); ok {
 		lang = l
+	}
+
+	// Validate OAuth client if client_id is present
+	if cid := r.URL.Query().Get("client_id"); cid != "" {
+		client, err := s.store.GetOAuthClient(cid)
+		if err != nil {
+			http.Error(w, "Invalid client_id", http.StatusBadRequest)
+			return
+		}
+		// Validate redirect_uri if present
+		if ruri := r.URL.Query().Get("redirect_uri"); ruri != "" {
+			valid := false
+			for _, u := range strings.Split(client.RedirectURIs, ",") {
+				if u == ruri {
+					valid = true
+					break
+				}
+			}
+			if !valid {
+				http.Error(w, "Invalid redirect_uri", http.StatusBadRequest)
+				return
+			}
+		}
 	}
 
 	data := struct {
@@ -116,6 +141,26 @@ func (s *Server) handleDevLogin(w http.ResponseWriter, r *http.Request) {
 	if err := s.issueTokens(w, r, u.ID); err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "token error: " + err.Error()})
 		return
+	}
+
+	// Handle OAuth redirect if parameters are present
+	if ruri := r.URL.Query().Get("redirect_uri"); ruri != "" {
+		code := base64.RawURLEncoding.EncodeToString([]byte(storage.NewUUID()))
+		sessData := map[string]any{"uid": u.ID, "iat": time.Now().Unix()}
+		sessBytes, _ := json.Marshal(sessData)
+		_ = s.sessions.Set("auth_code:"+code, sessBytes, 5*time.Minute)
+
+		target, err := url.Parse(ruri)
+		if err == nil {
+			q := target.Query()
+			q.Set("code", code)
+			if state := r.URL.Query().Get("state"); state != "" {
+				q.Set("state", state)
+			}
+			target.RawQuery = q.Encode()
+			writeJSON(w, http.StatusOK, map[string]any{"user": u, "redirect": target.String()})
+			return
+		}
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{"user": u})

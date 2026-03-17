@@ -7,6 +7,7 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -998,5 +999,69 @@ func TestAuthServerMetadata(t *testing.T) {
 	uris := regResp["redirect_uris"].([]any)
 	if uris[0] != "http://localhost:1234/callback" {
 		t.Errorf("Expected redirect_uri 'http://localhost:1234/callback', got %v", uris[0])
+	}
+
+	clientID := regResp["client_id"].(string)
+
+	// 1. Authorization Request
+	authReq := httptest.NewRequest(http.MethodGet, "/auth/login?client_id="+clientID+"&redirect_uri=http://localhost:1234/callback&state=mystate", nil)
+	wAuth := httptest.NewRecorder()
+	s.Router.ServeHTTP(wAuth, authReq)
+	if wAuth.Code != http.StatusOK {
+		t.Fatalf("Expected 200 for login page, got %d", wAuth.Code)
+	}
+
+	// 2. Dev Login (simulating user finishing login)
+	s.cfg.DevLoginEnabled = true // Ensure dev login is enabled for test
+	devReqBody, _ := json.Marshal(map[string]string{
+		"email": "mcp@example.com",
+		"name":  "MCP User",
+	})
+	devReq := httptest.NewRequest(http.MethodPost, "/api/auth/dev-login?redirect_uri=http://localhost:1234/callback&state=mystate", bytes.NewReader(devReqBody))
+	wDev := httptest.NewRecorder()
+	s.Router.ServeHTTP(wDev, devReq)
+	if wDev.Code != http.StatusOK {
+		t.Fatalf("Expected 200 for dev login, got %d. Body: %s", wDev.Code, wDev.Body.String())
+	}
+
+	var devResp map[string]any
+	if err := json.Unmarshal(wDev.Body.Bytes(), &devResp); err != nil {
+		t.Fatalf("Failed to unmarshal dev login response: %v", err)
+	}
+	redirectURL, ok := devResp["redirect"].(string)
+	if !ok {
+		t.Fatalf("Expected redirect field in dev login response. Body: %s", wDev.Body.String())
+	}
+	u, _ := url.Parse(redirectURL)
+	code := u.Query().Get("code")
+	if code == "" {
+		t.Fatalf("Expected code in redirect URL")
+	}
+	if u.Query().Get("state") != "mystate" {
+		t.Errorf("Expected state 'mystate', got %v", u.Query().Get("state"))
+	}
+
+	// 3. Token Exchange
+	tokenData := url.Values{}
+	tokenData.Set("grant_type", "authorization_code")
+	tokenData.Set("code", code)
+	tokenData.Set("client_id", clientID)
+	tokenData.Set("client_secret", regResp["client_secret"].(string))
+
+	tokenReq := httptest.NewRequest(http.MethodPost, "/api/auth/token", strings.NewReader(tokenData.Encode()))
+	tokenReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	wToken := httptest.NewRecorder()
+	s.Router.ServeHTTP(wToken, tokenReq)
+
+	if wToken.Code != http.StatusOK {
+		t.Fatalf("Expected 200 for token exchange, got %d. Body: %s", wToken.Code, wToken.Body.String())
+	}
+
+	var tokenResp map[string]any
+	if err := json.Unmarshal(wToken.Body.Bytes(), &tokenResp); err != nil {
+		t.Fatalf("Failed to unmarshal token response: %v", err)
+	}
+	if tokenResp["access_token"] == nil {
+		t.Errorf("Expected access_token in response")
 	}
 }
