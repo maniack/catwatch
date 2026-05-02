@@ -226,6 +226,7 @@ func NewServer(cfg Config) (*Server, error) {
 		})
 
 		r.Route("/bot", func(r chi.Router) {
+			r.Use(s.BotKeyAuth)
 			r.Post("/register", s.registerBotUser)
 			r.Post("/notifications", s.markNotificationSent)
 			r.Get("/users", s.listBotUsers)

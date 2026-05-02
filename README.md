@@ -142,7 +142,7 @@ The application can be configured via command-line flags or environment variable
 |-----------|-----|---------|-------------|
 | `--db` | `DB_PATH` | `catwatch.db` | Database DSN (SQLite or Postgres). |
 | `--jwt-secret` | `JWT_SECRET` | *(auto)* | **[Required for Production]** JWT signing secret. |
-| `--bot-api-key`| `BOT_API_KEY`| | Secret key for bot authentication. |
+| `--bot-api-key`| `BOT_API_KEY`| | **[Required when using the bot]** Secret key; all `/api/bot/*` endpoints reject requests without matching `X-Bot-Key` header. |
 | `--cors-origin`| `CORS_ORIGIN`| `*` | Allowed CORS origins (comma-separated or multiple flags). |
 | `--devel` | `DEV_LOGIN` | `false` | Enable dev login (`POST /api/auth/dev-login`). |
 | `--audit-log-ttl`| `AUDIT_LOG_TTL`| `720h` (30d)| Retention period for audit logs. |
@@ -183,11 +183,14 @@ If not specified, an in-memory storage is used (suitable for development only).
 ### Authentication
 - `GET /.well-known/oauth-authorization-server` — OAuth 2.0 Authorization Server Metadata (RFC 8414).
 - `GET /.well-known/openid-configuration` — OpenID Connect Discovery.
+- `GET /.well-known/oauth-protected-resource` — Protected Resource Metadata (RFC 9728). Also served at `/.well-known/oauth-protected-resource/*` and the legacy alias `/.well-known/protected-resource-metadata`.
+- `POST /api/auth/register` — Dynamic Client Registration (RFC 7591). Registers a new OAuth2 client; returns `client_id` and `client_secret`.
+- `POST /api/auth/token` — Token Endpoint (RFC 6749). Supports `grant_type=authorization_code` (with optional PKCE via RFC 7636 S256 or plain) and `grant_type=refresh_token`. Tokens are issued as form-encoded parameters (`application/x-www-form-urlencoded`). Refresh tokens are rotated on each use.
 - `GET /auth/login` — Centralized login page (Login Picker).
 - `POST /api/auth/dev-login` — Dev login (only if `--devel` is enabled).
 - `GET /auth/google/login` — Login via Google.
 - `GET /auth/oidc/login` — Login via OIDC.
-- `POST /api/auth/refresh` — Token refresh.
+- `POST /api/auth/refresh` — SPA token refresh (reads `refresh_token` cookie).
 - `POST /api/auth/logout` — Logout.
 - `GET /api/user` — Information about the current user (requires JWT).
 - `PATCH /api/user` — Update user profile (name, email).
@@ -203,19 +206,30 @@ If not specified, an in-memory storage is used (suitable for development only).
 - `POST /api/cats/{id}/like` — Toggle like for a cat (requires JWT).
 - `PUT /api/cats/{id}/` — Update cat data (requires JWT).
 - `DELETE /api/cats/{id}/` — Delete cat (requires JWT).
+- `GET /api/cats/{id}/images/{imgId}` — Fetch optimized image binary (public). Redirects to original URL or serves the stored binary.
+- `POST /api/cats/{id}/images` — Add image by URL (requires JWT). URL must use `http` or `https` scheme.
+- `DELETE /api/cats/{id}/images/{imgId}` — Delete image (requires JWT).
+- `POST /api/cats/{id}/locations` — Add a sighting location (requires JWT).
 
 ### Service Journal and Planning
 - `GET /api/cats/{id}/records` — History (public, done only) and planned procedures (requires JWT).
   - Parameters: `status=planned` or `status=done`.
   - Calendar: `start=RFC3339&end=RFC3339` for expanding recurring events.
 - `POST /api/cats/{id}/records` — Add a record (event or plan).
-- `POST /api/cats/{id}/records/{rid}/done` — Mark procedure as done.
+- `PUT /api/cats/{id}/records/{rid}` — Update a record (requires JWT).
+- `POST /api/cats/{id}/records/{rid}/done` — Mark procedure as done (requires JWT).
+- `POST /api/records/{rid}/done` — Shortcut (shorter URL for bot callback data, requires JWT).
+- `DELETE /api/images/{imgId}` — Shortcut for image deletion (shorter URL for bot callback data, requires JWT).
 
 ### Bot and Reminders
+All `/api/bot/*` endpoints require the `X-Bot-Key: <secret>` header matching the server's `--bot-api-key`.
+
 - `GET /api/records/planned` — All planned records (supports `start` and `end`).
 - `GET /api/bot/users` — List of registered bot users.
 - `POST /api/bot/register` — Bot user registration.
-- `POST /api/bot/notifications` — Confirming notification delivery.
+- `POST /api/bot/notifications` — Confirm notification delivery.
+- `POST /api/bot/token` — Issue a short-lived access token for a bot user by chat ID.
+- `POST /api/bot/unlink` — Unlink a Telegram chat from its user account.
 
 ### Utilities
 - `GET /healthz/alive` — Liveness check (Backend & Bot).

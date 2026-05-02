@@ -56,13 +56,13 @@ func (s *Server) handleLoginPage(w http.ResponseWriter, r *http.Request) {
 		GoogleEnabled bool
 		OIDCEnabled   bool
 		DevEnabled    bool
-		Query         string
+		Query         htmltemplate.URL
 	}{
 		Lang:          lang,
 		GoogleEnabled: s.GoogleEnabled(),
 		OIDCEnabled:   s.OIDCEnabled(),
 		DevEnabled:    s.DevEnabled(),
-		Query:         r.URL.RawQuery,
+		Query:         htmltemplate.URL(r.URL.RawQuery),
 	}
 
 	tmpl := `<!DOCTYPE html>
@@ -146,18 +146,24 @@ func (s *Server) handleDevLogin(w http.ResponseWriter, r *http.Request) {
 	// Handle OAuth redirect if parameters are present
 	if ruri := r.URL.Query().Get("redirect_uri"); ruri != "" {
 		code := base64.RawURLEncoding.EncodeToString([]byte(storage.NewUUID()))
-		sessData := map[string]any{"uid": u.ID, "iat": time.Now().Unix()}
+		q := r.URL.Query()
+		sessData := map[string]any{
+			"uid":                   u.ID,
+			"iat":                   time.Now().Unix(),
+			"code_challenge":        q.Get("code_challenge"),
+			"code_challenge_method": q.Get("code_challenge_method"),
+		}
 		sessBytes, _ := json.Marshal(sessData)
 		_ = s.sessions.Set("auth_code:"+code, sessBytes, 5*time.Minute)
 
 		target, err := url.Parse(ruri)
 		if err == nil {
-			q := target.Query()
-			q.Set("code", code)
-			if state := r.URL.Query().Get("state"); state != "" {
-				q.Set("state", state)
+			tq := target.Query()
+			tq.Set("code", code)
+			if state := q.Get("state"); state != "" {
+				tq.Set("state", state)
 			}
-			target.RawQuery = q.Encode()
+			target.RawQuery = tq.Encode()
 			writeJSON(w, http.StatusOK, map[string]any{"user": u, "redirect": target.String()})
 			return
 		}
@@ -201,6 +207,30 @@ func (s *Server) handleDevLoginGET(w http.ResponseWriter, r *http.Request) {
 		title := l10n.T(lang, "auth_success_title")
 		msg := l10n.T(lang, "auth_success_msg", map[string]int64{"ChatID": tgChatID})
 		fmt.Fprintf(w, "<h2>%s</h2><p>%s</p>", title, msg)
+	} else if ruri := r.URL.Query().Get("redirect_uri"); ruri != "" {
+		code := base64.RawURLEncoding.EncodeToString([]byte(storage.NewUUID()))
+		q := r.URL.Query()
+		sessData := map[string]any{
+			"uid":                   u.ID,
+			"iat":                   time.Now().Unix(),
+			"code_challenge":        q.Get("code_challenge"),
+			"code_challenge_method": q.Get("code_challenge_method"),
+		}
+		sessBytes, _ := json.Marshal(sessData)
+		_ = s.sessions.Set("auth_code:"+code, sessBytes, 5*time.Minute)
+
+		target, err := url.Parse(ruri)
+		if err == nil {
+			tq := target.Query()
+			tq.Set("code", code)
+			if state := q.Get("state"); state != "" {
+				tq.Set("state", state)
+			}
+			target.RawQuery = tq.Encode()
+			http.Redirect(w, r, target.String(), http.StatusFound)
+			return
+		}
+		http.Redirect(w, r, "/", http.StatusFound)
 	} else {
 		http.Redirect(w, r, "/", http.StatusFound)
 	}
@@ -418,6 +448,11 @@ func (s *Server) addCatImage(w http.ResponseWriter, r *http.Request) {
 		}
 		if in.URL == "" {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "url required"})
+			return
+		}
+		parsed, err := url.Parse(in.URL)
+		if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "url must use http or https scheme"})
 			return
 		}
 		img.URL = in.URL

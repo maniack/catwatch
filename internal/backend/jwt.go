@@ -309,11 +309,6 @@ func (s *Server) handleGetUserAudit(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleBotToken(w http.ResponseWriter, r *http.Request) {
-	if s.cfg.BotAPIKey != "" && r.Header.Get("X-Bot-Key") != s.cfg.BotAPIKey {
-		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "invalid bot key"})
-		return
-	}
-
 	var in struct {
 		ChatID int64 `json:"chat_id"`
 	}
@@ -344,11 +339,6 @@ func (s *Server) handleBotToken(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleBotUnlink(w http.ResponseWriter, r *http.Request) {
-	if s.cfg.BotAPIKey != "" && r.Header.Get("X-Bot-Key") != s.cfg.BotAPIKey {
-		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "invalid bot key"})
-		return
-	}
-
 	var in struct {
 		ChatID int64 `json:"chat_id"`
 	}

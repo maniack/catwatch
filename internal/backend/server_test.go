@@ -2,6 +2,8 @@ package backend
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"mime/multipart"
@@ -291,7 +293,9 @@ func TestPlanAndCompleteProcedure(t *testing.T) {
 
 func TestBotAPI(t *testing.T) {
 	s := newTestServer(t)
+	s.cfg.BotAPIKey = "test-bot-key"
 	r := s.Router
+	botKey := "test-bot-key"
 
 	// Test Register
 	regIn := map[string]any{
@@ -300,6 +304,7 @@ func TestBotAPI(t *testing.T) {
 	}
 	body, _ := json.Marshal(regIn)
 	req := httptest.NewRequest(http.MethodPost, "/api/bot/register", bytes.NewReader(body))
+	req.Header.Set("X-Bot-Key", botKey)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 	if w.Code != http.StatusOK {
@@ -308,6 +313,7 @@ func TestBotAPI(t *testing.T) {
 
 	// Test List Users
 	req2 := httptest.NewRequest(http.MethodGet, "/api/bot/users", nil)
+	req2.Header.Set("X-Bot-Key", botKey)
 	w2 := httptest.NewRecorder()
 	r.ServeHTTP(w2, req2)
 	if w2.Code != http.StatusOK {
@@ -334,6 +340,7 @@ func TestBotAPI(t *testing.T) {
 	}
 	body2, _ := json.Marshal(notifIn)
 	req4 := httptest.NewRequest(http.MethodPost, "/api/bot/notifications", bytes.NewReader(body2))
+	req4.Header.Set("X-Bot-Key", botKey)
 	w4 := httptest.NewRecorder()
 	r.ServeHTTP(w4, req4)
 	if w4.Code != http.StatusOK {
@@ -342,6 +349,7 @@ func TestBotAPI(t *testing.T) {
 
 	// Duplicate mark should fail with 409
 	req5 := httptest.NewRequest(http.MethodPost, "/api/bot/notifications", bytes.NewReader(body2))
+	req5.Header.Set("X-Bot-Key", botKey)
 	w5 := httptest.NewRecorder()
 	r.ServeHTTP(w5, req5)
 	if w5.Code != http.StatusConflict {
@@ -481,8 +489,10 @@ func TestBotDevLogin(t *testing.T) {
 		JWTSecret:       "test-secret",
 		SessionStore:    sessions.NewMemorySessionStore(),
 		DevLoginEnabled: true,
+		BotAPIKey:       "test-bot-key",
 	})
 	r := s.Router
+	botKey := "test-bot-key"
 
 	// 1. Link chat via dev login GET
 	chatID := int64(987654)
@@ -508,6 +518,7 @@ func TestBotDevLogin(t *testing.T) {
 	req2In := map[string]any{"chat_id": chatID}
 	body2, _ := json.Marshal(req2In)
 	req2 := httptest.NewRequest(http.MethodPost, "/api/bot/token", bytes.NewReader(body2))
+	req2.Header.Set("X-Bot-Key", botKey)
 	w2 := httptest.NewRecorder()
 	r.ServeHTTP(w2, req2)
 
@@ -528,6 +539,7 @@ func TestBotDevLogin(t *testing.T) {
 	body4, _ := json.Marshal(in4)
 	req4 := httptest.NewRequest(http.MethodPost, "/api/bot/token", bytes.NewReader(body4))
 	req4.Header.Set("Content-Type", "application/json")
+	req4.Header.Set("X-Bot-Key", botKey)
 	w4 := httptest.NewRecorder()
 	r.ServeHTTP(w4, req4)
 
@@ -1063,5 +1075,70 @@ func TestAuthServerMetadata(t *testing.T) {
 	}
 	if tokenResp["access_token"] == nil {
 		t.Errorf("Expected access_token in response")
+	}
+}
+
+func TestPKCE(t *testing.T) {
+	s := newTestServer(t)
+	s.cfg.DevLoginEnabled = true
+	verifier := "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk"
+	h := sha256.New()
+	h.Write([]byte(verifier))
+	challenge := base64.RawURLEncoding.EncodeToString(h.Sum(nil))
+
+	devLogin := func(email string) string {
+		body, _ := json.Marshal(map[string]string{"email": email})
+		req := httptest.NewRequest(http.MethodPost,
+			"/api/auth/dev-login?redirect_uri=http://localhost/cb&state=st&code_challenge="+challenge+"&code_challenge_method=S256",
+			bytes.NewReader(body))
+		w := httptest.NewRecorder()
+		s.Router.ServeHTTP(w, req)
+		if w.Code != http.StatusOK {
+			t.Fatalf("Dev login failed: %d, %s", w.Code, w.Body.String())
+		}
+		var resp map[string]any
+		_ = json.Unmarshal(w.Body.Bytes(), &resp)
+		redirectStr, ok := resp["redirect"].(string)
+		if !ok {
+			t.Fatalf("Expected redirect in dev login response, got: %v", resp)
+		}
+		u, _ := url.Parse(redirectStr)
+		return u.Query().Get("code")
+	}
+
+	// 1. Wrong verifier → 400; code must be consumed (no replay)
+	code1 := devLogin("pkce@example.com")
+	tokenData := url.Values{}
+	tokenData.Set("grant_type", "authorization_code")
+	tokenData.Set("code", code1)
+	tokenData.Set("code_verifier", "wrong")
+
+	req1 := httptest.NewRequest(http.MethodPost, "/api/auth/token", strings.NewReader(tokenData.Encode()))
+	req1.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	w1 := httptest.NewRecorder()
+	s.Router.ServeHTTP(w1, req1)
+	if w1.Code != http.StatusBadRequest {
+		t.Errorf("Expected 400 for wrong verifier, got %d. Body: %s", w1.Code, w1.Body.String())
+	}
+
+	// Replay the same code — must fail (already consumed)
+	tokenData.Set("code_verifier", verifier)
+	reqReplay := httptest.NewRequest(http.MethodPost, "/api/auth/token", strings.NewReader(tokenData.Encode()))
+	reqReplay.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	wReplay := httptest.NewRecorder()
+	s.Router.ServeHTTP(wReplay, reqReplay)
+	if wReplay.Code != http.StatusBadRequest {
+		t.Errorf("Expected 400 on replay of consumed code, got %d. Body: %s", wReplay.Code, wReplay.Body.String())
+	}
+
+	// 2. Fresh code with correct verifier → 200
+	code2 := devLogin("pkce2@example.com")
+	tokenData.Set("code", code2)
+	req2 := httptest.NewRequest(http.MethodPost, "/api/auth/token", strings.NewReader(tokenData.Encode()))
+	req2.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	w2 := httptest.NewRecorder()
+	s.Router.ServeHTTP(w2, req2)
+	if w2.Code != http.StatusOK {
+		t.Errorf("Expected 200 for correct verifier, got %d. Body: %s", w2.Code, w2.Body.String())
 	}
 }

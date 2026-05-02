@@ -33,6 +33,12 @@ func (lrw *loggingResponseWriter) Write(b []byte) (int, error) {
 	return n, err
 }
 
+func (lrw *loggingResponseWriter) Flush() {
+	if f, ok := lrw.ResponseWriter.(http.Flusher); ok {
+		f.Flush()
+	}
+}
+
 type ctxKey string
 
 const (
@@ -244,6 +250,18 @@ func (s *Server) CSRFProtection(next http.Handler) http.Handler {
 				writeJSON(w, http.StatusForbidden, map[string]string{"error": "CSRF token missing"})
 				return
 			}
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+// BotKeyAuth requires a valid X-Bot-Key header on every request.
+// If BotAPIKey is not configured the endpoint is closed to all callers.
+func (s *Server) BotKeyAuth(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if s.cfg.BotAPIKey == "" || r.Header.Get("X-Bot-Key") != s.cfg.BotAPIKey {
+			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
+			return
 		}
 		next.ServeHTTP(w, r)
 	})

@@ -27,6 +27,9 @@ type stateMeta struct {
 	// RFC 6749 Authorization Parameters
 	OAuthState       string `json:"oauth_state,omitempty"`
 	OAuthRedirectURI string `json:"oauth_redirect_uri,omitempty"`
+	// RFC 7636 PKCE
+	CodeChallenge       string `json:"code_challenge,omitempty"`
+	CodeChallengeMethod string `json:"code_challenge_method,omitempty"`
 }
 
 func (h *Handler) oidcLogin(w http.ResponseWriter, r *http.Request) {
@@ -97,8 +100,14 @@ func (h *Handler) doOIDCLogin(w http.ResponseWriter, r *http.Request, p provider
 	}
 
 	// Capture OAuth context if present
-	meta.OAuthState = r.URL.Query().Get("state")
-	meta.OAuthRedirectURI = r.URL.Query().Get("redirect_uri")
+	q := r.URL.Query()
+	meta.OAuthState = q.Get("state")
+	meta.OAuthRedirectURI = q.Get("redirect_uri")
+	meta.CodeChallenge = q.Get("code_challenge")
+	meta.CodeChallengeMethod = q.Get("code_challenge_method")
+	if meta.OAuthRedirectURI != "" {
+		h.logger.Infof("OAuth login started for %s, with client_id: %s and redirect_uri: %s", p.name, q.Get("client_id"), meta.OAuthRedirectURI)
+	}
 
 	metaBytes, _ := json.Marshal(meta)
 	_ = h.sessions.Set(sessionKey, metaBytes, 15*time.Minute)
@@ -136,20 +145,17 @@ func (h *Handler) doOIDCCallback(w http.ResponseWriter, r *http.Request, p provi
 
 	var meta stateMeta
 	sessionKey := "state:" + p.name + ":" + stateQ
-	if v, _ := h.sessions.Get(sessionKey); v != nil {
+	v, err := h.sessions.Get(sessionKey)
+	if err == nil && v != nil {
 		_ = json.Unmarshal(v, &meta)
 		_ = h.sessions.Del(sessionKey)
 	} else {
-		// Fallback to cookie for non-telegram logins if session is lost (best effort)
-		if c, err := r.Cookie("oauth_" + p.name + "_state"); err == nil {
-			if cv, _ := url.QueryUnescape(c.Value); cv != stateQ {
-				writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid state (cookie)"})
-				return
-			}
-		} else {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid state (no session)"})
-			return
-		}
+		h.logger.Warnf("OAuth session lost for %s (state=%s), err=%v", p.name, stateQ[:min(8, len(stateQ))], err)
+		writeJSON(w, http.StatusBadRequest, map[string]string{
+			"error":             "session_expired",
+			"error_description": "OAuth session expired, please try the login link again",
+		})
+		return
 	}
 
 	// Clear cookie
@@ -221,14 +227,17 @@ func (h *Handler) doOIDCCallback(w http.ResponseWriter, r *http.Request, p provi
 		// We issue a code for the OAuth client
 		code := randomState() // Reuse same helper for random string
 		sessData := map[string]any{
-			"uid": u.ID,
-			"iat": time.Now().Unix(),
+			"uid":                   u.ID,
+			"iat":                   time.Now().Unix(),
+			"code_challenge":        meta.CodeChallenge,
+			"code_challenge_method": meta.CodeChallengeMethod,
 		}
 		sessBytes, _ := json.Marshal(sessData)
 		_ = h.sessions.Set("auth_code:"+code, sessBytes, 5*time.Minute)
 
 		target, err := url.Parse(meta.OAuthRedirectURI)
 		if err != nil {
+			h.logger.Errorf("Failed to parse redirect_uri '%s': %v", meta.OAuthRedirectURI, err)
 			http.Redirect(w, r, h.appRedirect, http.StatusFound)
 			return
 		}
@@ -238,9 +247,11 @@ func (h *Handler) doOIDCCallback(w http.ResponseWriter, r *http.Request, p provi
 			q.Set("state", meta.OAuthState)
 		}
 		target.RawQuery = q.Encode()
+		h.logger.Infof("OAuth authorization successful for %s, redirecting to: %s", p.name, target.String())
 		http.Redirect(w, r, target.String(), http.StatusFound)
 	} else {
 		// For SPA, redirect to home
+		h.logger.Infof("OAuth login successful for %s, no redirect_uri, going to home", p.name)
 		http.Redirect(w, r, h.appRedirect, http.StatusFound)
 	}
 }

@@ -1,6 +1,8 @@
 package backend
 
 import (
+	"crypto/sha256"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -146,11 +148,40 @@ func (s *Server) handleTokenExchange(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_grant", "error_description": "invalid or expired code"})
 			return
 		}
+
+		// Invalidate code immediately — prevents replay even if PKCE fails below.
 		_ = s.sessions.Del("auth_code:" + code)
 
 		var sessData map[string]any
 		_ = json.Unmarshal(val, &sessData)
 		uid, _ := sessData["uid"].(string)
+
+		// RFC 7636 PKCE Validation
+		expectedChallenge, _ := sessData["code_challenge"].(string)
+		challengeMethod, _ := sessData["code_challenge_method"].(string)
+		if expectedChallenge != "" {
+			codeVerifier := r.Form.Get("code_verifier")
+			if codeVerifier == "" {
+				writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_grant", "error_description": "code_verifier is required for PKCE"})
+				return
+			}
+
+			if challengeMethod == "S256" {
+				h := sha256.New()
+				h.Write([]byte(codeVerifier))
+				challenge := base64.RawURLEncoding.EncodeToString(h.Sum(nil))
+				if challenge != expectedChallenge {
+					writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_grant", "error_description": "invalid code_verifier (S256)"})
+					return
+				}
+			} else {
+				// plain method: verifier must equal challenge verbatim
+				if codeVerifier != expectedChallenge {
+					writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_grant", "error_description": "invalid code_verifier (plain)"})
+					return
+				}
+			}
+		}
 
 		// Check client credentials if provided (RFC 6749 §3.2.1)
 		// For MCP/Claude it might be a public client or it might provide client_id/client_secret.
@@ -199,8 +230,50 @@ func (s *Server) handleTokenExchange(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if grantType == "refresh_token" {
-		// Use existing refresh logic
-		s.handleRefresh(w, r)
+		refreshToken := r.Form.Get("refresh_token")
+		if refreshToken == "" {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_request", "error_description": "refresh_token is required"})
+			return
+		}
+
+		val, err := s.sessions.Get("sess:" + refreshToken)
+		if err != nil || val == nil {
+			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "invalid_grant", "error_description": "invalid or expired refresh token"})
+			return
+		}
+
+		var sessData map[string]any
+		_ = json.Unmarshal(val, &sessData)
+		uid, _ := sessData["uid"].(string)
+
+		// Rotate — invalidate old token before issuing new one.
+		_ = s.sessions.Del("sess:" + refreshToken)
+
+		accessTTL := s.cfg.AccessTTL
+		if accessTTL == 0 {
+			accessTTL = 15 * time.Minute
+		}
+		refreshTTL := s.cfg.RefreshTTL
+		if refreshTTL == 0 {
+			refreshTTL = 30 * 24 * time.Hour
+		}
+
+		accessToken, err := s.generateAccessToken(uid, accessTTL)
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "server_error"})
+			return
+		}
+		newRefreshToken := s.generateOpaqueToken()
+		newSessData := map[string]any{"uid": uid, "iat": time.Now().Unix()}
+		newSessBytes, _ := json.Marshal(newSessData)
+		_ = s.sessions.Set("sess:"+newRefreshToken, newSessBytes, refreshTTL)
+
+		writeJSON(w, http.StatusOK, map[string]any{
+			"access_token":  accessToken,
+			"token_type":    "Bearer",
+			"expires_in":    int(accessTTL.Seconds()),
+			"refresh_token": newRefreshToken,
+		})
 		return
 	}
 
